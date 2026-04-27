@@ -11,6 +11,7 @@
 ///   MOCK_RECORD_REQUESTS=1           — write each received request as a JSON line to MOCK_REQUEST_LOG
 ///   MOCK_REQUEST_LOG=<path>          — file path for request log (used with MOCK_RECORD_REQUESTS)
 ///   MOCK_DIE_AFTER_HANDSHAKE=1       — close stdout immediately after sending the initialize response
+///   MOCK_HANG_MS=<n>                 — sleep n ms before sending each response (covers initialize + tools/list + tools/call); used by transport-timeout tests
 use std::io::{self, BufRead, Write};
 
 use serde::{Deserialize, Serialize};
@@ -55,6 +56,20 @@ fn tool_error_data() -> Option<Value> {
 
 fn die_after_handshake() -> bool {
     std::env::var("MOCK_DIE_AFTER_HANDSHAKE").as_deref() == Ok("1")
+}
+
+fn hang_ms() -> u64 {
+    std::env::var("MOCK_HANG_MS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0)
+}
+
+fn maybe_hang() {
+    let ms = hang_ms();
+    if ms > 0 {
+        std::thread::sleep(std::time::Duration::from_millis(ms));
+    }
 }
 
 fn no_gtd() -> bool {
@@ -108,7 +123,7 @@ fn tools_list() -> Value {
             uri_schema.clone(),
         ),
         make_tool(
-            "org-outline",
+            "org-read-outline",
             "List the outline of an org file",
             json!({
                 "type": "object",
@@ -125,11 +140,11 @@ fn tools_list() -> Value {
                 "type": "object",
                 "properties": {
                     "uri": {"type": "string"},
-                    "state": {"type": "string"},
-                    "from_state": {"type": "string"},
+                    "new_state": {"type": "string"},
+                    "current_state": {"type": "string"},
                     "note": {"type": "string"}
                 },
-                "required": ["uri", "state"]
+                "required": ["uri", "new_state"]
             }),
         ),
         make_tool(
@@ -140,7 +155,7 @@ fn tools_list() -> Value {
                 "properties": {
                     "parent_uri": {"type": "string"},
                     "title": {"type": "string"},
-                    "state": {"type": "string"},
+                    "todo_state": {"type": "string"},
                     "body": {"type": "string"},
                     "tags": {"type": "array", "items": {"type": "string"}},
                     "after_uri": {"type": "string"}
@@ -163,33 +178,32 @@ fn tools_list() -> Value {
             }),
         ),
         make_tool(
-            "org-edit-rename",
+            "org-rename-headline",
             "Rename a node headline",
             json!({
                 "type": "object",
                 "properties": {
                     "uri": {"type": "string"},
-                    "from": {"type": "string"},
-                    "to": {"type": "string"}
+                    "current_title": {"type": "string"},
+                    "new_title": {"type": "string"}
                 },
-                "required": ["uri", "from", "to"]
+                "required": ["uri", "current_title", "new_title"]
             }),
         ),
         make_tool(
-            "org-edit-properties",
+            "org-set-properties",
             "Edit node properties",
             json!({
                 "type": "object",
                 "properties": {
                     "uri": {"type": "string"},
-                    "set": {"type": "object"},
-                    "unset": {"type": "array", "items": {"type": "string"}}
+                    "properties": {"type": "object"}
                 },
-                "required": ["uri"]
+                "required": ["uri", "properties"]
             }),
         ),
         make_tool(
-            "org-edit-tags",
+            "org-set-tags",
             "Edit node tags",
             json!({
                 "type": "object",
@@ -201,7 +215,7 @@ fn tools_list() -> Value {
             }),
         ),
         make_tool(
-            "org-edit-priority",
+            "org-set-priority",
             "Edit node priority",
             json!({
                 "type": "object",
@@ -213,31 +227,31 @@ fn tools_list() -> Value {
             }),
         ),
         make_tool(
-            "org-edit-scheduled",
+            "org-update-scheduled",
             "Edit node scheduled date",
             json!({
                 "type": "object",
                 "properties": {
                     "uri": {"type": "string"},
-                    "date": {"type": "string"}
+                    "scheduled": {"type": "string"}
                 },
                 "required": ["uri"]
             }),
         ),
         make_tool(
-            "org-edit-deadline",
+            "org-update-deadline",
             "Edit node deadline date",
             json!({
                 "type": "object",
                 "properties": {
                     "uri": {"type": "string"},
-                    "date": {"type": "string"}
+                    "deadline": {"type": "string"}
                 },
                 "required": ["uri"]
             }),
         ),
         make_tool(
-            "org-edit-log-note",
+            "org-add-logbook-note",
             "Add a log note to a node",
             json!({
                 "type": "object",
@@ -249,7 +263,7 @@ fn tools_list() -> Value {
             }),
         ),
         make_tool(
-            "org-clock-status",
+            "org-clock-get-active",
             "Get current clock status",
             json!({
                 "type": "object",
@@ -263,7 +277,7 @@ fn tools_list() -> Value {
                 "type": "object",
                 "properties": {
                     "uri": {"type": "string"},
-                    "at": {"type": "string"},
+                    "start_time": {"type": "string"},
                     "resolve": {"type": "boolean"}
                 },
                 "required": ["uri"]
@@ -276,7 +290,7 @@ fn tools_list() -> Value {
                 "type": "object",
                 "properties": {
                     "uri": {"type": "string"},
-                    "at": {"type": "string"}
+                    "end_time": {"type": "string"}
                 }
             }),
         ),
@@ -300,13 +314,13 @@ fn tools_list() -> Value {
                 "type": "object",
                 "properties": {
                     "uri": {"type": "string"},
-                    "at": {"type": "string"}
+                    "start": {"type": "string"}
                 },
-                "required": ["uri", "at"]
+                "required": ["uri", "start"]
             }),
         ),
         make_tool(
-            "org-clock-dangling",
+            "org-clock-find-dangling",
             "List dangling clock entries",
             json!({
                 "type": "object",
@@ -314,7 +328,7 @@ fn tools_list() -> Value {
             }),
         ),
         make_tool(
-            "org-config-todo",
+            "org-get-todo-config",
             "Get configured TODO states",
             json!({
                 "type": "object",
@@ -322,7 +336,7 @@ fn tools_list() -> Value {
             }),
         ),
         make_tool(
-            "org-config-tags",
+            "org-get-tag-config",
             "Get configured tags",
             json!({
                 "type": "object",
@@ -330,7 +344,7 @@ fn tools_list() -> Value {
             }),
         ),
         make_tool(
-            "org-config-tag-candidates",
+            "org-get-tag-candidates",
             "Get tag candidates",
             json!({
                 "type": "object",
@@ -338,7 +352,7 @@ fn tools_list() -> Value {
             }),
         ),
         make_tool(
-            "org-config-priority",
+            "org-get-priority-config",
             "Get priority configuration",
             json!({
                 "type": "object",
@@ -346,7 +360,7 @@ fn tools_list() -> Value {
             }),
         ),
         make_tool(
-            "org-config-files",
+            "org-get-allowed-files",
             "Get configured org files",
             json!({
                 "type": "object",
@@ -354,7 +368,7 @@ fn tools_list() -> Value {
             }),
         ),
         make_tool(
-            "org-config-clock",
+            "org-get-clock-config",
             "Get clock configuration",
             json!({
                 "type": "object",
@@ -426,6 +440,7 @@ fn handle_initialize(id: Value, out: &mut impl Write) {
         error: None,
     };
     let serialized = serde_json::to_string(&resp).unwrap();
+    maybe_hang();
     writeln!(out, "{}", serialized).unwrap();
     out.flush().unwrap();
 
@@ -496,7 +511,7 @@ fn handle_tools_call(id: Value, params: Option<Value>) -> Response {
                 "text": format!("* TODO Mock Title\nMock body for {}", uri)
             }])
         }
-        "org-outline" => {
+        "org-read-outline" => {
             let file = arguments
                 .get("file")
                 .and_then(Value::as_str)
@@ -519,13 +534,16 @@ fn handle_tools_call(id: Value, params: Option<Value>) -> Response {
                 .and_then(Value::as_str)
                 .unwrap_or("");
             // Optional fields: include as JSON null when absent so response shape is stable.
-            let from = arguments.get("from").cloned().unwrap_or(Value::Null);
+            let current_state = arguments
+                .get("current_state")
+                .cloned()
+                .unwrap_or(Value::Null);
             let note = arguments.get("note").cloned().unwrap_or(Value::Null);
             let payload = json!({
                 "success": true,
                 "uri": format!("org://{}", uri),
                 "new_state": new_state,
-                "from": from,
+                "current_state": current_state,
                 "note": note,
             });
             json!([{
@@ -536,7 +554,7 @@ fn handle_tools_call(id: Value, params: Option<Value>) -> Response {
         "org-add-todo" => {
             let parent_uri = arguments.get("parent_uri").cloned().unwrap_or(Value::Null);
             let title = arguments.get("title").cloned().unwrap_or(Value::Null);
-            let state = arguments.get("state").cloned().unwrap_or(Value::Null);
+            let todo_state = arguments.get("todo_state").cloned().unwrap_or(Value::Null);
             let body = arguments.get("body").cloned().unwrap_or(Value::Null);
             let tags = arguments.get("tags").cloned().unwrap_or(json!([]));
             let after_uri = arguments.get("after_uri").cloned().unwrap_or(Value::Null);
@@ -545,7 +563,7 @@ fn handle_tools_call(id: Value, params: Option<Value>) -> Response {
                 "uri": "org://new-id-12345",
                 "parent_uri": parent_uri,
                 "title": title,
-                "state": state,
+                "todo_state": todo_state,
                 "tags": tags,
                 "after_uri": after_uri,
                 "body": body,
@@ -616,7 +634,7 @@ fn handle_tools_call(id: Value, params: Option<Value>) -> Response {
                 "text": serde_json::to_string(&payload).unwrap()
             }])
         }
-        "org-clock-status" => {
+        "org-clock-get-active" => {
             let payload = json!({
                 "clocked_in": true,
                 "current": {
@@ -635,12 +653,12 @@ fn handle_tools_call(id: Value, params: Option<Value>) -> Response {
             // Critically: resolve is echoed exactly as received (string or bool)
             // so tests can assert it arrived as a JSON STRING "true"/"false".
             let uri = arguments.get("uri").and_then(Value::as_str).unwrap_or("");
-            let at = arguments.get("at").cloned().unwrap_or(Value::Null);
+            let start_time = arguments.get("start_time").cloned().unwrap_or(Value::Null);
             let resolve = arguments.get("resolve").cloned().unwrap_or(Value::Null);
             let payload = json!({
                 "success": true,
                 "uri": format!("org://{}", uri),
-                "at": at,
+                "start_time": start_time,
                 "resolve": resolve,
             });
             json!([{
@@ -654,11 +672,11 @@ fn handle_tools_call(id: Value, params: Option<Value>) -> Response {
             let uri_str = uri_val
                 .map(|u| format!("org://{}", u))
                 .unwrap_or_else(|| "org://current".to_string());
-            let at = arguments.get("at").cloned().unwrap_or(Value::Null);
+            let end_time = arguments.get("end_time").cloned().unwrap_or(Value::Null);
             let payload = json!({
                 "success": true,
                 "uri": uri_str,
-                "at": at,
+                "end_time": end_time,
             });
             json!([{
                 "type": "text",
@@ -682,18 +700,18 @@ fn handle_tools_call(id: Value, params: Option<Value>) -> Response {
         }
         "org-clock-delete" => {
             let uri = arguments.get("uri").and_then(Value::as_str).unwrap_or("");
-            let at = arguments.get("at").cloned().unwrap_or(Value::Null);
+            let start = arguments.get("start").cloned().unwrap_or(Value::Null);
             let payload = json!({
                 "success": true,
                 "uri": format!("org://{}", uri),
-                "at": at,
+                "start": start,
             });
             json!([{
                 "type": "text",
                 "text": serde_json::to_string(&payload).unwrap()
             }])
         }
-        "org-clock-dangling" => {
+        "org-clock-find-dangling" => {
             let payload = json!({
                 "dangling": [{
                     "uri": "org://orphan-1",
@@ -707,7 +725,7 @@ fn handle_tools_call(id: Value, params: Option<Value>) -> Response {
                 "text": serde_json::to_string(&payload).unwrap()
             }])
         }
-        "org-config-todo" => {
+        "org-get-todo-config" => {
             let payload = json!({
                 "keywords": ["TODO", "NEXT", "WAITING", "DONE", "CANCELLED"],
                 "groups": [
@@ -720,7 +738,7 @@ fn handle_tools_call(id: Value, params: Option<Value>) -> Response {
                 "text": serde_json::to_string(&payload).unwrap()
             }])
         }
-        "org-config-tags" => {
+        "org-get-tag-config" => {
             let payload = json!({
                 "tags": ["work", "home", "urgent", "read"]
             });
@@ -729,7 +747,7 @@ fn handle_tools_call(id: Value, params: Option<Value>) -> Response {
                 "text": serde_json::to_string(&payload).unwrap()
             }])
         }
-        "org-config-tag-candidates" => {
+        "org-get-tag-candidates" => {
             let payload = json!({
                 "candidates": [
                     {"tag": "work", "count": 42},
@@ -741,7 +759,7 @@ fn handle_tools_call(id: Value, params: Option<Value>) -> Response {
                 "text": serde_json::to_string(&payload).unwrap()
             }])
         }
-        "org-config-priority" => {
+        "org-get-priority-config" => {
             let payload = json!({
                 "priorities": ["A", "B", "C"],
                 "default": "B"
@@ -751,7 +769,7 @@ fn handle_tools_call(id: Value, params: Option<Value>) -> Response {
                 "text": serde_json::to_string(&payload).unwrap()
             }])
         }
-        "org-config-files" => {
+        "org-get-allowed-files" => {
             let payload = json!({
                 "agenda_files": [
                     "/home/user/.org/inbox.org",
@@ -763,7 +781,7 @@ fn handle_tools_call(id: Value, params: Option<Value>) -> Response {
                 "text": serde_json::to_string(&payload).unwrap()
             }])
         }
-        "org-config-clock" => {
+        "org-get-clock-config" => {
             let payload = json!({
                 "persist": true,
                 "resolve_strategy": "prompt",
@@ -862,6 +880,7 @@ fn main() {
         };
 
         let serialized = serde_json::to_string(&response).unwrap();
+        maybe_hang();
         writeln!(out, "{}", serialized).unwrap();
         out.flush().unwrap();
     }

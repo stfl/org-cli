@@ -2,7 +2,7 @@
 ///
 /// The critical quirk tested here: `--resolve` must be sent to the server as
 /// the JSON STRING "true"/"false", NOT the JSON boolean true/false.
-/// See PLAN §5.6 §7 and contract.rs ServerValue::BoolAsString.
+/// See contract.rs `ServerValue::BoolAsString` and `org-mcp--tool-clock-in` in ../org-mcp/org-mcp.el.
 use std::process::Command;
 
 fn org_bin() -> Command {
@@ -24,7 +24,7 @@ fn temp_log(tag: &str) -> std::path::PathBuf {
     ))
 }
 
-fn find_tools_call<'a>(log: &'a str, tool: &str) -> serde_json::Value {
+fn find_tools_call(log: &str, tool: &str) -> serde_json::Value {
     log.lines()
         .filter_map(|line| serde_json::from_str(line).ok())
         .find(|v: &serde_json::Value| {
@@ -38,7 +38,7 @@ fn find_tools_call<'a>(log: &'a str, tool: &str) -> serde_json::Value {
 // ---------------------------------------------------------------------------
 
 /// --resolve flag → server receives resolve as the STRING "true" (not bool true).
-/// This is the critical contract test for PLAN §5.6 §7 / ServerValue::BoolAsString.
+/// This is the critical contract test for `ServerValue::BoolAsString` in contract.rs.
 #[test]
 fn test_clock_in_resolve_is_string_true() {
     let log_path = temp_log("resolve_true");
@@ -71,7 +71,7 @@ fn test_clock_in_resolve_is_string_true() {
     assert_eq!(
         args["resolve"],
         serde_json::Value::String("true".to_string()),
-        "resolve must be the JSON STRING \"true\", not bool true — PLAN §5.6 §7"
+        "resolve must be the JSON STRING \"true\", not bool true — see ServerValue::BoolAsString in contract.rs"
     );
 }
 
@@ -126,9 +126,9 @@ fn test_clock_in_at_forwarded() {
     let req = find_tools_call(&log, "org-clock-in");
     let args = &req["params"]["arguments"];
     assert_eq!(
-        args["at"].as_str(),
+        args["start_time"].as_str(),
         Some(ts),
-        "at timestamp must be forwarded"
+        "start_time timestamp must be forwarded"
     );
 }
 
@@ -149,8 +149,8 @@ fn test_clock_in_no_at_key_absent() {
     let req = find_tools_call(&log, "org-clock-in");
     let args = &req["params"]["arguments"];
     assert!(
-        !args.as_object().unwrap().contains_key("at"),
-        "at key must be absent when --at not given"
+        !args.as_object().unwrap().contains_key("start_time"),
+        "start_time key must be absent when --at not given"
     );
 }
 

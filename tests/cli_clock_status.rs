@@ -20,7 +20,7 @@ fn temp_log(tag: &str) -> std::path::PathBuf {
     ))
 }
 
-fn find_tools_call<'a>(log: &'a str, tool: &str) -> serde_json::Value {
+fn find_tools_call(log: &str, tool: &str) -> serde_json::Value {
     log.lines()
         .filter_map(|line| serde_json::from_str(line).ok())
         .find(|v: &serde_json::Value| {
@@ -67,7 +67,7 @@ fn test_clock_status_empty_arguments() {
     assert!(output.status.success());
     let log = std::fs::read_to_string(&log_path).expect("log must exist");
     let _ = std::fs::remove_file(&log_path);
-    let req = find_tools_call(&log, "org-clock-status");
+    let req = find_tools_call(&log, "org-clock-get-active");
     let args = &req["params"]["arguments"];
     assert!(
         args.as_object().map(|o| o.is_empty()).unwrap_or(false),
@@ -80,7 +80,7 @@ fn test_clock_status_empty_arguments() {
 fn test_clock_status_tool_error() {
     let output = org_bin()
         .args(["--server", mock_bin(), "clock", "status"])
-        .env("MOCK_TOOL_ERROR", "org-clock-status")
+        .env("MOCK_TOOL_ERROR", "org-clock-get-active")
         .output()
         .expect("failed to run org");
     assert_eq!(output.status.code(), Some(1));
@@ -136,7 +136,7 @@ fn test_clock_dangling_empty_arguments() {
     assert!(output.status.success());
     let log = std::fs::read_to_string(&log_path).expect("log must exist");
     let _ = std::fs::remove_file(&log_path);
-    let req = find_tools_call(&log, "org-clock-dangling");
+    let req = find_tools_call(&log, "org-clock-find-dangling");
     let args = &req["params"]["arguments"];
     assert!(
         args.as_object().map(|o| o.is_empty()).unwrap_or(false),
@@ -149,7 +149,7 @@ fn test_clock_dangling_empty_arguments() {
 fn test_clock_dangling_tool_error() {
     let output = org_bin()
         .args(["--server", mock_bin(), "clock", "dangling"])
-        .env("MOCK_TOOL_ERROR", "org-clock-dangling")
+        .env("MOCK_TOOL_ERROR", "org-clock-find-dangling")
         .output()
         .expect("failed to run org");
     assert_eq!(output.status.code(), Some(1));

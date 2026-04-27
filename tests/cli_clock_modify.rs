@@ -20,7 +20,7 @@ fn temp_log(tag: &str) -> std::path::PathBuf {
     ))
 }
 
-fn find_tools_call<'a>(log: &'a str, tool: &str) -> serde_json::Value {
+fn find_tools_call(log: &str, tool: &str) -> serde_json::Value {
     log.lines()
         .filter_map(|line| serde_json::from_str(line).ok())
         .find(|v: &serde_json::Value| {
@@ -238,7 +238,7 @@ fn test_clock_delete_params_in_request() {
         Some("abc"),
         "org:// prefix must be stripped"
     );
-    assert_eq!(args["at"].as_str(), Some(at), "at must be forwarded");
+    assert_eq!(args["start"].as_str(), Some(at), "start must be forwarded");
 }
 
 /// Missing --at → clap usage error, exit 2.

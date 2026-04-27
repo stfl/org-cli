@@ -120,7 +120,11 @@ fn test_todo_state_all_flags_forwarded() {
         .expect("must find a tools/call for org-update-todo-state");
 
     let args = &call_req["params"]["arguments"];
-    assert_eq!(args["from"].as_str(), Some("TODO"), "from must be TODO");
+    assert_eq!(
+        args["current_state"].as_str(),
+        Some("TODO"),
+        "current_state must be TODO"
+    );
     assert_eq!(args["note"].as_str(), Some("x"), "note must be x");
 }
 
@@ -152,8 +156,8 @@ fn test_todo_state_omits_optional_keys_when_absent() {
 
     let args = &call_req["params"]["arguments"];
     assert!(
-        !args.as_object().unwrap().contains_key("from"),
-        "from key must be absent when --from not given; args: {args}"
+        !args.as_object().unwrap().contains_key("current_state"),
+        "current_state key must be absent when --from not given; args: {args}"
     );
     assert!(
         !args.as_object().unwrap().contains_key("note"),

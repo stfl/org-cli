@@ -1,8 +1,9 @@
 /// URI normalization helpers for org-cli.
 ///
-/// Per PLAN §3.2 + §5.6: tool inputs must be **bare** (UUID, file path, or
-/// `file#headline/path`). The CLI accepts either form for ergonomics, but
-/// strips a leading `org://` before sending to the server.
+/// Tool inputs must be **bare** (UUID, file path, or `file#headline/path`);
+/// the `org://` prefix is reserved for the MCP resource layer (see
+/// `org-mcp--parse-resource-uri` in ../org-mcp/org-mcp.el). The CLI accepts
+/// either form for ergonomics, but strips a leading `org://` before sending.
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -19,7 +20,7 @@ pub fn normalize_for_tool(input: &str) -> String {
 
 /// Validate that a path supplied to `org outline` is acceptable.
 ///
-/// Rules (PLAN §5.6 / §6 / §3.2):
+/// Rules:
 /// - Reject any input starting with `org://` (outline takes a file path, not a resource URI).
 /// - Otherwise pass through as-is (we do not force absolute paths on the user's behalf).
 pub fn validate_outline_path(input: &str) -> Result<&str, OutlineUriError> {

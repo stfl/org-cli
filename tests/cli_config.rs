@@ -23,7 +23,7 @@ fn temp_log(tag: &str) -> std::path::PathBuf {
     ))
 }
 
-fn find_tools_call<'a>(log: &'a str, tool: &str) -> serde_json::Value {
+fn find_tools_call(log: &str, tool: &str) -> serde_json::Value {
     log.lines()
         .filter_map(|line| serde_json::from_str(line).ok())
         .find(|v: &serde_json::Value| {
@@ -75,7 +75,7 @@ fn test_config_todo_empty_arguments() {
     assert!(output.status.success());
     let log = std::fs::read_to_string(&log_path).expect("log must exist");
     let _ = std::fs::remove_file(&log_path);
-    let req = find_tools_call(&log, "org-config-todo");
+    let req = find_tools_call(&log, "org-get-todo-config");
     let args = &req["params"]["arguments"];
     assert!(
         args.as_object().map(|o| o.is_empty()).unwrap_or(false),
@@ -88,7 +88,7 @@ fn test_config_todo_empty_arguments() {
 fn test_config_todo_tool_error() {
     let output = org_bin()
         .args(["--server", mock_bin(), "config", "todo"])
-        .env("MOCK_TOOL_ERROR", "org-config-todo")
+        .env("MOCK_TOOL_ERROR", "org-get-todo-config")
         .output()
         .expect("failed to run org");
     assert_eq!(output.status.code(), Some(1));

@@ -29,7 +29,7 @@ fn find_tools_call(log: &str, tool: &str) -> serde_json::Value {
         .unwrap_or_else(|| panic!("must find a tools/call for {tool}"))
 }
 
-/// --set foo=bar --set baz=qux → arguments.set == {"foo":"bar","baz":"qux"}.
+/// --set foo=bar --set baz=qux → arguments.properties == {"foo":"bar","baz":"qux"}.
 #[test]
 fn test_properties_set_pairs_forwarded_as_object() {
     let log_path = temp_log("set_pairs");
@@ -57,22 +57,24 @@ fn test_properties_set_pairs_forwarded_as_object() {
     );
     let log = std::fs::read_to_string(&log_path).expect("log must exist");
     let _ = std::fs::remove_file(&log_path);
-    let req = find_tools_call(&log, "org-edit-properties");
+    let req = find_tools_call(&log, "org-set-properties");
     let args = &req["params"]["arguments"];
-    let set = &args["set"];
-    assert!(set.is_object(), "set must be an object; got: {set}");
-    assert_eq!(set["foo"].as_str(), Some("bar"));
-    assert_eq!(set["baz"].as_str(), Some("qux"));
+    let props = &args["properties"];
+    assert!(
+        props.is_object(),
+        "properties must be an object; got: {props}"
+    );
+    assert_eq!(props["foo"].as_str(), Some("bar"));
+    assert_eq!(props["baz"].as_str(), Some("qux"));
     // Contract assertion
     assert!(args.as_object().unwrap().contains_key("uri"));
-    assert!(args.as_object().unwrap().contains_key("set"));
-    assert!(args.as_object().unwrap().contains_key("unset"));
+    assert!(args.as_object().unwrap().contains_key("properties"));
 }
 
-/// --unset a --unset b → arguments.unset == ["a","b"].
+/// --unset a --unset b → arguments.properties == {"a": null, "b": null}.
 #[test]
-fn test_properties_unset_forwarded_as_array() {
-    let log_path = temp_log("unset_array");
+fn test_properties_unset_forwarded_as_null_values() {
+    let log_path = temp_log("unset_nulls");
     let output = org_bin()
         .args([
             "--server",
@@ -92,20 +94,23 @@ fn test_properties_unset_forwarded_as_array() {
     assert!(output.status.success());
     let log = std::fs::read_to_string(&log_path).expect("log must exist");
     let _ = std::fs::remove_file(&log_path);
-    let req = find_tools_call(&log, "org-edit-properties");
+    let req = find_tools_call(&log, "org-set-properties");
     let args = &req["params"]["arguments"];
-    let unset = &args["unset"];
-    assert!(unset.is_array(), "unset must be array");
-    let arr: Vec<&str> = unset
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|v| v.as_str().unwrap())
-        .collect();
-    assert_eq!(arr, vec!["a", "b"]);
+    let props = &args["properties"];
+    assert!(props.is_object(), "properties must be object");
+    assert_eq!(
+        props["a"],
+        serde_json::Value::Null,
+        "unset key must be null"
+    );
+    assert_eq!(
+        props["b"],
+        serde_json::Value::Null,
+        "unset key must be null"
+    );
 }
 
-/// Combined --set and --unset together.
+/// Combined --set and --unset → merged into single properties object.
 #[test]
 fn test_properties_set_and_unset_combined() {
     let log_path = temp_log("combined");
@@ -128,17 +133,21 @@ fn test_properties_set_and_unset_combined() {
     assert!(output.status.success());
     let log = std::fs::read_to_string(&log_path).expect("log must exist");
     let _ = std::fs::remove_file(&log_path);
-    let req = find_tools_call(&log, "org-edit-properties");
+    let req = find_tools_call(&log, "org-set-properties");
     let args = &req["params"]["arguments"];
-    assert_eq!(args["set"]["x"].as_str(), Some("1"));
-    let unset_arr = args["unset"].as_array().unwrap();
-    assert_eq!(unset_arr.len(), 1);
-    assert_eq!(unset_arr[0].as_str(), Some("y"));
+    let props = &args["properties"];
+    assert!(props.is_object(), "properties must be object");
+    assert_eq!(props["x"].as_str(), Some("1"), "set key must have value");
+    assert_eq!(
+        props["y"],
+        serde_json::Value::Null,
+        "unset key must be null"
+    );
 }
 
-/// Empty (no flags) → set == {}, unset == [].
+/// Empty (no flags) → properties == {}.
 #[test]
-fn test_properties_empty_sends_empty_object_and_array() {
+fn test_properties_empty_sends_empty_object() {
     let log_path = temp_log("empty");
     let output = org_bin()
         .args(["--server", mock_bin(), "edit", "properties", "abc"])
@@ -149,18 +158,15 @@ fn test_properties_empty_sends_empty_object_and_array() {
     assert!(output.status.success());
     let log = std::fs::read_to_string(&log_path).expect("log must exist");
     let _ = std::fs::remove_file(&log_path);
-    let req = find_tools_call(&log, "org-edit-properties");
+    let req = find_tools_call(&log, "org-set-properties");
     let args = &req["params"]["arguments"];
-    assert!(args["set"].is_object(), "set must be object");
+    assert!(args["properties"].is_object(), "properties must be object");
     assert!(
-        args["set"].as_object().unwrap().is_empty(),
-        "set must be {{}} when no --set"
+        args["properties"].as_object().unwrap().is_empty(),
+        "properties must be {{}} when no flags given"
     );
-    assert!(args["unset"].is_array(), "unset must be array");
-    assert!(
-        args["unset"].as_array().unwrap().is_empty(),
-        "unset must be [] when no --unset"
-    );
+    // properties key must always be present (upstream defun requires it)
+    assert!(args.as_object().unwrap().contains_key("properties"));
 }
 
 /// Malformed --set noequals → exit 2 (usage error), NO server spawn.
@@ -198,7 +204,7 @@ fn test_properties_malformed_set_exits_2_before_spawn() {
     );
 }
 
-/// Value with equals: --set foo=bar=baz → arguments.set.foo == "bar=baz".
+/// Value with equals: --set foo=bar=baz → properties.foo == "bar=baz".
 #[test]
 fn test_properties_value_with_equals_splits_on_first() {
     let log_path = temp_log("value_equals");
@@ -219,10 +225,10 @@ fn test_properties_value_with_equals_splits_on_first() {
     assert!(output.status.success());
     let log = std::fs::read_to_string(&log_path).expect("log must exist");
     let _ = std::fs::remove_file(&log_path);
-    let req = find_tools_call(&log, "org-edit-properties");
+    let req = find_tools_call(&log, "org-set-properties");
     let args = &req["params"]["arguments"];
     assert_eq!(
-        args["set"]["foo"].as_str(),
+        args["properties"]["foo"].as_str(),
         Some("bar=baz"),
         "split must happen on first = only"
     );
@@ -233,7 +239,7 @@ fn test_properties_value_with_equals_splits_on_first() {
 fn test_properties_tool_error() {
     let output = org_bin()
         .args(["--server", mock_bin(), "edit", "properties", "abc"])
-        .env("MOCK_TOOL_ERROR", "org-edit-properties")
+        .env("MOCK_TOOL_ERROR", "org-set-properties")
         .output()
         .expect("failed to run org");
     assert_eq!(output.status.code(), Some(1));

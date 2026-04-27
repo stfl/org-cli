@@ -33,6 +33,11 @@ pub struct Cli {
     #[arg(long, global = true)]
     pub compact: bool,
 
+    /// Per-recv() timeout in seconds for the stdio transport.
+    /// 0 disables the timeout. Default 30. Honors `ORG_TIMEOUT`.
+    #[arg(long, global = true, env = "ORG_TIMEOUT", default_value_t = 30)]
+    pub timeout: u64,
+
     #[command(subcommand)]
     pub command: Commands,
 }
@@ -118,7 +123,7 @@ pub enum ConfigKind {
 ///
 /// Supports two forms:
 ///   - `org query run "<expr>"` — explicit subcommand form (always works)
-///   - `org query "<expr>"` — bare positional form (PLAN §6)
+///   - `org query "<expr>"` — bare positional form (dispatched as `QueryKind::Run`)
 ///
 /// When both `ql_expr` (positional) and no subcommand are present, the bare
 /// expr is dispatched as `QueryKind::Run`. If a known subcommand (`run`,
@@ -238,7 +243,7 @@ pub enum EditKind {
 
     /// Edit the body text of a node.
     Body {
-        /// Node URI (sent to server as resource_uri per PLAN §5.6 §7).
+        /// Node URI (sent to server as `resource_uri`; see `org-mcp--tool-edit-body` in ../org-mcp/org-mcp.el).
         uri: String,
         /// New body text.
         #[arg(long = "new")]
@@ -331,7 +336,7 @@ pub enum ClockKind {
         #[arg(long)]
         at: Option<String>,
         /// Resolve dangling clocks before clocking in.
-        /// NOTE: sent to server as string "true"/"false", not JSON bool — PLAN §5.6 §7.
+        /// NOTE: sent to server as string "true"/"false", not JSON bool — see `ServerValue::BoolAsString` in contract.rs.
         #[arg(long)]
         resolve: bool,
     },

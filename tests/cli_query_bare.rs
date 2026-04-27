@@ -1,4 +1,4 @@
-/// Integration tests for `org query <expr>` (bare positional form, PLAN §6).
+/// Integration tests for `org query <expr>` (bare positional form, dispatched as QueryKind::Run).
 ///
 /// These tests verify that the bare form `org query "<expr>"` works identically
 /// to `org query run "<expr>"`, while existing subcommands still work.

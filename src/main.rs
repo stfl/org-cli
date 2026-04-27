@@ -24,6 +24,8 @@ fn main() {
 }
 
 fn run(cli: Cli, compact: bool) -> i32 {
+    RECV_TIMEOUT_SECS.store(cli.timeout, std::sync::atomic::Ordering::Relaxed);
+
     // Schema is a local introspection command — no server needed.
     if let Commands::Schema(ref args) = cli.command {
         return cmd_schema(args, compact);
@@ -113,8 +115,18 @@ fn cmd_schema(args: &SchemaArgs, compact: bool) -> i32 {
     }
 }
 
+/// Per-recv() timeout in seconds. 0 disables the gate. Set once in `run()`
+/// from `--timeout` / `ORG_TIMEOUT`; read by every `connect()` call.
+static RECV_TIMEOUT_SECS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(30);
+
 fn connect(argv: &[String], compact: bool) -> Result<Client, i32> {
-    Client::connect(argv).map_err(|e| handle_mcp_error(e, compact))
+    let secs = RECV_TIMEOUT_SECS.load(std::sync::atomic::Ordering::Relaxed);
+    let timeout = if secs == 0 {
+        None
+    } else {
+        Some(std::time::Duration::from_secs(secs))
+    };
+    Client::connect_with_timeout(argv, timeout).map_err(|e| handle_mcp_error(e, compact))
 }
 
 fn handle_mcp_error(e: McpError, compact: bool) -> i32 {
@@ -200,7 +212,7 @@ fn cmd_outline(argv: &[String], file: &str, compact: bool) -> i32 {
         Ok(c) => c,
         Err(code) => return code,
     };
-    match client.tools_call("org-outline", json!({ "file": file })) {
+    match client.tools_call("org-read-outline", json!({ "file": file })) {
         Ok(content) => {
             let data = extract_result(content);
             print_success(data, compact);
@@ -219,7 +231,7 @@ fn cmd_query(argv: &[String], args: &QueryArgs, compact: bool) -> i32 {
             cmd_query_gtd(argv, "query-backlog", tag.as_deref(), compact)
         }
         None => {
-            // Bare form: `org query "<expr>"` (PLAN §6)
+            // Bare form: `org query "<expr>"` — dispatched as QueryKind::Run
             if let Some(expr) = &args.ql_expr {
                 cmd_query_run(argv, expr, &args.files, compact)
             } else {
@@ -346,13 +358,13 @@ fn cmd_todo_state(
     };
     let bare_uri = uri::normalize_for_tool(uri);
 
-    // Build arguments: always include uri and new_state; omit from/note when None.
+    // Build arguments: always include uri and new_state; omit current_state/note when None.
     let mut arguments = json!({
         "uri": bare_uri,
         "new_state": new_state,
     });
     if let Some(f) = from {
-        arguments["from"] = json!(f);
+        arguments["current_state"] = json!(f);
     }
     if let Some(n) = note {
         arguments["note"] = json!(n);
@@ -387,20 +399,20 @@ fn cmd_todo_add(
     // The real server may use "parent" instead; update here and in contract.rs if confirmed.
     let bare_parent = uri::normalize_for_tool(parent);
 
-    // Build arguments: parent_uri, title, state are always sent.
+    // Build arguments: parent_uri, title, todo_state are always sent.
     // tags is always sent as an array (empty [] if none) for deterministic shape.
     // body and after_uri are omitted when None.
     let mut arguments = json!({
         "parent_uri": bare_parent,
         "title": title,
-        "state": state,
+        "todo_state": state,
         "tags": tags,
     });
     if let Some(b) = body {
         arguments["body"] = json!(b);
     }
     if let Some(a) = after {
-        // after_uri is ID-based per PLAN §5.6 — strip org:// prefix.
+        // after_uri is ID-based (bare form only) — strip org:// prefix if present.
         let bare_after = uri::normalize_for_tool(a);
         arguments["after_uri"] = json!(bare_after);
     }
@@ -476,10 +488,10 @@ fn cmd_edit_rename(argv: &[String], uri: &str, from: &str, to: &str, compact: bo
     let bare = uri::normalize_for_tool(uri);
     let arguments = json!({
         "uri": bare,
-        "from": from,
-        "to": to,
+        "current_title": from,
+        "new_title": to,
     });
-    match client.tools_call("org-edit-rename", arguments) {
+    match client.tools_call("org-rename-headline", arguments) {
         Ok(content) => {
             print_success(extract_result(content), compact);
             0
@@ -501,7 +513,7 @@ fn cmd_edit_body(
         Err(code) => return code,
     };
     let bare = uri::normalize_for_tool(uri);
-    // NOTE: server param key is `resource_uri` (not `uri`) — PLAN §5.6 §7
+    // NOTE: server param key is `resource_uri` (not `uri`) — see `org-mcp--tool-edit-body` in ../org-mcp/org-mcp.el
     // NOTE: --new maps to `new_body`, --old maps to `old_body`
     let mut arguments = json!({
         "resource_uri": bare,
@@ -532,12 +544,16 @@ fn cmd_edit_properties(
         Err(code) => return code,
     };
     let bare = uri::normalize_for_tool(uri);
+    // Merge --set k=v (value) and --unset k (null) into a single `properties` object.
+    let mut properties = set_map;
+    for key in unsets {
+        properties.insert(key.clone(), Value::Null);
+    }
     let arguments = json!({
         "uri": bare,
-        "set": set_map,
-        "unset": unsets,
+        "properties": properties,
     });
-    match client.tools_call("org-edit-properties", arguments) {
+    match client.tools_call("org-set-properties", arguments) {
         Ok(content) => {
             print_success(extract_result(content), compact);
             0
@@ -556,7 +572,7 @@ fn cmd_edit_tags(argv: &[String], uri: &str, tags: &[String], compact: bool) -> 
         "uri": bare,
         "tags": tags,
     });
-    match client.tools_call("org-edit-tags", arguments) {
+    match client.tools_call("org-set-tags", arguments) {
         Ok(content) => {
             print_success(extract_result(content), compact);
             0
@@ -580,7 +596,7 @@ fn cmd_edit_priority(argv: &[String], uri: &str, priority: Option<&str>, compact
         "uri": bare,
         "priority": priority_val,
     });
-    match client.tools_call("org-edit-priority", arguments) {
+    match client.tools_call("org-set-priority", arguments) {
         Ok(content) => {
             print_success(extract_result(content), compact);
             0
@@ -602,9 +618,9 @@ fn cmd_edit_scheduled(argv: &[String], uri: &str, date: Option<&str>, compact: b
     };
     let arguments = json!({
         "uri": bare,
-        "date": date_val,
+        "scheduled": date_val,
     });
-    match client.tools_call("org-edit-scheduled", arguments) {
+    match client.tools_call("org-update-scheduled", arguments) {
         Ok(content) => {
             print_success(extract_result(content), compact);
             0
@@ -626,9 +642,9 @@ fn cmd_edit_deadline(argv: &[String], uri: &str, date: Option<&str>, compact: bo
     };
     let arguments = json!({
         "uri": bare,
-        "date": date_val,
+        "deadline": date_val,
     });
-    match client.tools_call("org-edit-deadline", arguments) {
+    match client.tools_call("org-update-deadline", arguments) {
         Ok(content) => {
             print_success(extract_result(content), compact);
             0
@@ -647,7 +663,7 @@ fn cmd_edit_log_note(argv: &[String], uri: &str, note: &str, compact: bool) -> i
         "uri": bare,
         "note": note,
     });
-    match client.tools_call("org-edit-log-note", arguments) {
+    match client.tools_call("org-add-logbook-note", arguments) {
         Ok(content) => {
             print_success(extract_result(content), compact);
             0
@@ -674,7 +690,7 @@ fn cmd_clock_status(argv: &[String], compact: bool) -> i32 {
         Ok(c) => c,
         Err(code) => return code,
     };
-    match client.tools_call("org-clock-status", json!({})) {
+    match client.tools_call("org-clock-get-active", json!({})) {
         Ok(content) => {
             print_success(extract_result(content), compact);
             0
@@ -693,8 +709,8 @@ fn cmd_clock_in(argv: &[String], uri: &str, at: Option<&str>, resolve: bool, com
     // Build arguments: uri and resolve are always sent.
     // at is omitted when None.
     // CRITICAL: resolve is sent as a JSON STRING "true"/"false", NOT a JSON boolean.
-    // The org-mcp server expects a string-shaped value here — PLAN §5.6 §7 /
-    // contract.rs ServerValue::BoolAsString. Sending a native bool would silently
+    // The org-mcp server expects a string-shaped value here (see `org-mcp--tool-clock-in`
+    // in ../org-mcp/org-mcp.el and contract.rs ServerValue::BoolAsString). Sending a native bool would silently
     // break server-side resolution logic.
     let resolve_str = if resolve { "true" } else { "false" };
     let mut arguments = json!({
@@ -702,7 +718,7 @@ fn cmd_clock_in(argv: &[String], uri: &str, at: Option<&str>, resolve: bool, com
         "resolve": resolve_str,
     });
     if let Some(ts) = at {
-        arguments["at"] = json!(ts);
+        arguments["start_time"] = json!(ts);
     }
 
     match client.tools_call("org-clock-in", arguments) {
@@ -728,7 +744,7 @@ fn cmd_clock_out(argv: &[String], uri: Option<&str>, at: Option<&str>, compact: 
         arguments["uri"] = json!(bare);
     }
     if let Some(ts) = at {
-        arguments["at"] = json!(ts);
+        arguments["end_time"] = json!(ts);
     }
 
     match client.tools_call("org-clock-out", arguments) {
@@ -768,7 +784,7 @@ fn cmd_clock_delete(argv: &[String], uri: &str, at: &str, compact: bool) -> i32 
     let bare = uri::normalize_for_tool(uri);
     let arguments = json!({
         "uri": bare,
-        "at": at,
+        "start": at,
     });
     match client.tools_call("org-clock-delete", arguments) {
         Ok(content) => {
@@ -784,7 +800,7 @@ fn cmd_clock_dangling(argv: &[String], compact: bool) -> i32 {
         Ok(c) => c,
         Err(code) => return code,
     };
-    match client.tools_call("org-clock-dangling", json!({})) {
+    match client.tools_call("org-clock-find-dangling", json!({})) {
         Ok(content) => {
             print_success(extract_result(content), compact);
             0
@@ -795,12 +811,12 @@ fn cmd_clock_dangling(argv: &[String], compact: bool) -> i32 {
 
 fn cmd_config(argv: &[String], args: &ConfigArgs, compact: bool) -> i32 {
     match &args.kind {
-        ConfigKind::Todo => cmd_config_call(argv, "org-config-todo", compact),
-        ConfigKind::Tags => cmd_config_call(argv, "org-config-tags", compact),
-        ConfigKind::TagCandidates => cmd_config_call(argv, "org-config-tag-candidates", compact),
-        ConfigKind::Priority => cmd_config_call(argv, "org-config-priority", compact),
-        ConfigKind::Files => cmd_config_call(argv, "org-config-files", compact),
-        ConfigKind::Clock => cmd_config_call(argv, "org-config-clock", compact),
+        ConfigKind::Todo => cmd_config_call(argv, "org-get-todo-config", compact),
+        ConfigKind::Tags => cmd_config_call(argv, "org-get-tag-config", compact),
+        ConfigKind::TagCandidates => cmd_config_call(argv, "org-get-tag-candidates", compact),
+        ConfigKind::Priority => cmd_config_call(argv, "org-get-priority-config", compact),
+        ConfigKind::Files => cmd_config_call(argv, "org-get-allowed-files", compact),
+        ConfigKind::Clock => cmd_config_call(argv, "org-get-clock-config", compact),
     }
 }
 

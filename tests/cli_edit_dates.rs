@@ -59,16 +59,16 @@ fn test_scheduled_with_date() {
     );
     let log = std::fs::read_to_string(&log_path).expect("log must exist");
     let _ = std::fs::remove_file(&log_path);
-    let req = find_tools_call(&log, "org-edit-scheduled");
+    let req = find_tools_call(&log, "org-update-scheduled");
     let args = &req["params"]["arguments"];
-    assert_eq!(args["date"].as_str(), Some("2026-04-30"));
+    assert_eq!(args["scheduled"].as_str(), Some("2026-04-30"));
     assert_eq!(args["uri"].as_str(), Some("abc"), "uri must be stripped");
     // Contract assertion
     assert!(args.as_object().unwrap().contains_key("uri"));
-    assert!(args.as_object().unwrap().contains_key("date"));
+    assert!(args.as_object().unwrap().contains_key("scheduled"));
 }
 
-/// No --date → arguments.date == null (clear semantics).
+/// No --date → arguments.scheduled == null (clear semantics).
 #[test]
 fn test_scheduled_no_date_sends_null() {
     let log_path = temp_log("sched_null");
@@ -81,16 +81,16 @@ fn test_scheduled_no_date_sends_null() {
     assert!(output.status.success());
     let log = std::fs::read_to_string(&log_path).expect("log must exist");
     let _ = std::fs::remove_file(&log_path);
-    let req = find_tools_call(&log, "org-edit-scheduled");
+    let req = find_tools_call(&log, "org-update-scheduled");
     let args = &req["params"]["arguments"];
     assert!(
-        args.as_object().unwrap().contains_key("date"),
-        "date key must be present (explicit null for clear semantics)"
+        args.as_object().unwrap().contains_key("scheduled"),
+        "scheduled key must be present (explicit null for clear semantics)"
     );
     assert_eq!(
-        args["date"],
+        args["scheduled"],
         serde_json::Value::Null,
-        "date must be null when absent"
+        "scheduled must be null when absent"
     );
 }
 
@@ -99,7 +99,7 @@ fn test_scheduled_no_date_sends_null() {
 fn test_scheduled_tool_error() {
     let output = org_bin()
         .args(["--server", mock_bin(), "edit", "scheduled", "abc"])
-        .env("MOCK_TOOL_ERROR", "org-edit-scheduled")
+        .env("MOCK_TOOL_ERROR", "org-update-scheduled")
         .output()
         .expect("failed to run org");
     assert_eq!(output.status.code(), Some(1));
@@ -139,16 +139,16 @@ fn test_deadline_with_date() {
     );
     let log = std::fs::read_to_string(&log_path).expect("log must exist");
     let _ = std::fs::remove_file(&log_path);
-    let req = find_tools_call(&log, "org-edit-deadline");
+    let req = find_tools_call(&log, "org-update-deadline");
     let args = &req["params"]["arguments"];
-    assert_eq!(args["date"].as_str(), Some("2026-05-15 14:00"));
+    assert_eq!(args["deadline"].as_str(), Some("2026-05-15 14:00"));
     assert_eq!(args["uri"].as_str(), Some("abc"));
     // Contract assertion
     assert!(args.as_object().unwrap().contains_key("uri"));
-    assert!(args.as_object().unwrap().contains_key("date"));
+    assert!(args.as_object().unwrap().contains_key("deadline"));
 }
 
-/// No --date → arguments.date == null (clear semantics).
+/// No --date → arguments.deadline == null (clear semantics).
 #[test]
 fn test_deadline_no_date_sends_null() {
     let log_path = temp_log("deadline_null");
@@ -161,16 +161,16 @@ fn test_deadline_no_date_sends_null() {
     assert!(output.status.success());
     let log = std::fs::read_to_string(&log_path).expect("log must exist");
     let _ = std::fs::remove_file(&log_path);
-    let req = find_tools_call(&log, "org-edit-deadline");
+    let req = find_tools_call(&log, "org-update-deadline");
     let args = &req["params"]["arguments"];
     assert!(
-        args.as_object().unwrap().contains_key("date"),
-        "date key must be present (explicit null for clear semantics)"
+        args.as_object().unwrap().contains_key("deadline"),
+        "deadline key must be present (explicit null for clear semantics)"
     );
     assert_eq!(
-        args["date"],
+        args["deadline"],
         serde_json::Value::Null,
-        "date must be null when absent"
+        "deadline must be null when absent"
     );
 }
 
@@ -179,7 +179,7 @@ fn test_deadline_no_date_sends_null() {
 fn test_deadline_tool_error() {
     let output = org_bin()
         .args(["--server", mock_bin(), "edit", "deadline", "abc"])
-        .env("MOCK_TOOL_ERROR", "org-edit-deadline")
+        .env("MOCK_TOOL_ERROR", "org-update-deadline")
         .output()
         .expect("failed to run org");
     assert_eq!(output.status.code(), Some(1));

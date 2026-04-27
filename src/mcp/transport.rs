@@ -17,8 +17,18 @@
 /// t.send(&json_value)?;
 /// let response = t.recv()?;
 /// ```
+///
+/// # Read timeout
+///
+/// `recv()` honors `set_timeout(Some(Duration))`. None or `Duration::ZERO`
+/// disables the gate. The reader runs on a dedicated thread (mpsc channel) so
+/// the main loop can wake on `recv_timeout`. The thread is spawned lazily on
+/// the first `recv()` so transports that only `send()` pay no overhead.
 use std::io::{BufRead, BufReader, Write};
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
+use std::sync::mpsc::{Receiver, RecvTimeoutError, channel};
+use std::thread::{self, JoinHandle};
+use std::time::Duration;
 
 use serde_json::Value;
 
@@ -27,7 +37,16 @@ use super::error::McpError;
 pub struct Transport {
     child: Child,
     stdin: ChildStdin,
-    stdout: BufReader<ChildStdout>,
+    /// `Some` until the reader thread is started; then taken and moved into the thread.
+    stdout: Option<BufReader<ChildStdout>>,
+    /// Lazily started on first recv().
+    reader: Option<ReaderHandle>,
+    timeout: Option<Duration>,
+}
+
+struct ReaderHandle {
+    rx: Receiver<Result<String, std::io::Error>>,
+    _handle: JoinHandle<()>,
 }
 
 impl Transport {
@@ -66,8 +85,20 @@ impl Transport {
         Ok(Transport {
             child,
             stdin,
-            stdout: BufReader::new(stdout),
+            stdout: Some(BufReader::new(stdout)),
+            reader: None,
+            timeout: None,
         })
+    }
+
+    /// Configure the per-`recv()` timeout. `None` or `Some(Duration::ZERO)`
+    /// disables the gate (waits indefinitely). Setting takes effect on the
+    /// next `recv()` call.
+    pub fn set_timeout(&mut self, timeout: Option<Duration>) {
+        self.timeout = match timeout {
+            Some(d) if d.is_zero() => None,
+            other => other,
+        };
     }
 
     /// Send one JSON-RPC message (newline-terminated).
@@ -84,14 +115,73 @@ impl Transport {
         Ok(())
     }
 
-    /// Read one newline-delimited JSON-RPC response.
-    pub fn recv(&mut self) -> Result<Value, McpError> {
-        let mut line = String::new();
-        let n = self
+    /// Lazily spawn the reader thread (idempotent).
+    fn ensure_reader(&mut self) {
+        if self.reader.is_some() {
+            return;
+        }
+        // Take the BufReader out of self so the thread can own it.
+        let mut stdout = self
             .stdout
-            .read_line(&mut line)
-            .map_err(|e| McpError::Transport(format!("read error: {}", e)))?;
-        if n == 0 {
+            .take()
+            .expect("Transport::stdout must be Some until the reader is started exactly once");
+        let (tx, rx) = channel::<Result<String, std::io::Error>>();
+        let handle = thread::spawn(move || {
+            loop {
+                let mut line = String::new();
+                match stdout.read_line(&mut line) {
+                    Ok(0) => break, // EOF — drop tx, main thread will see RecvTimeoutError::Disconnected
+                    Ok(_) => {
+                        if tx.send(Ok(line)).is_err() {
+                            break; // Receiver dropped (Transport was dropped)
+                        }
+                    }
+                    Err(e) => {
+                        let _ = tx.send(Err(e));
+                        break;
+                    }
+                }
+            }
+        });
+        self.reader = Some(ReaderHandle {
+            rx,
+            _handle: handle,
+        });
+    }
+
+    /// Read one newline-delimited JSON-RPC response.
+    /// Honors `set_timeout`: returns a `kind=transport` error on expiry.
+    pub fn recv(&mut self) -> Result<Value, McpError> {
+        self.ensure_reader();
+        let reader = self
+            .reader
+            .as_ref()
+            .expect("ensure_reader must populate self.reader");
+
+        let raw = match self.timeout {
+            None => reader.rx.recv().map_err(|_| {
+                McpError::Transport(
+                    "server closed stdout (EOF) without sending a response".to_string(),
+                )
+            })?,
+            Some(d) => match reader.rx.recv_timeout(d) {
+                Ok(v) => v,
+                Err(RecvTimeoutError::Timeout) => {
+                    return Err(McpError::Transport(format!(
+                        "no response from server within {}s (timeout)",
+                        d.as_secs()
+                    )));
+                }
+                Err(RecvTimeoutError::Disconnected) => {
+                    return Err(McpError::Transport(
+                        "server closed stdout (EOF) without sending a response".to_string(),
+                    ));
+                }
+            },
+        };
+
+        let line = raw.map_err(|e| McpError::Transport(format!("read error: {}", e)))?;
+        if line.is_empty() {
             return Err(McpError::Transport(
                 "server closed stdout (EOF) without sending a response".to_string(),
             ));

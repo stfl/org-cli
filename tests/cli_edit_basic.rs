@@ -20,7 +20,7 @@ fn temp_log(tag: &str) -> std::path::PathBuf {
     ))
 }
 
-fn find_tools_call<'a>(log: &'a str, tool: &str) -> serde_json::Value {
+fn find_tools_call(log: &str, tool: &str) -> serde_json::Value {
     log.lines()
         .filter_map(|line| serde_json::from_str(line).ok())
         .find(|v: &serde_json::Value| {
@@ -86,15 +86,15 @@ fn test_rename_strips_uri_prefix() {
     assert!(output.status.success());
     let log = std::fs::read_to_string(&log_path).expect("log must exist");
     let _ = std::fs::remove_file(&log_path);
-    let req = find_tools_call(&log, "org-edit-rename");
+    let req = find_tools_call(&log, "org-rename-headline");
     let args = &req["params"]["arguments"];
     assert_eq!(args["uri"].as_str(), Some("abc"), "uri must be stripped");
-    assert_eq!(args["from"].as_str(), Some("Old"));
-    assert_eq!(args["to"].as_str(), Some("New"));
+    assert_eq!(args["current_title"].as_str(), Some("Old"));
+    assert_eq!(args["new_title"].as_str(), Some("New"));
     // Contract assertion: all three keys present
     assert!(args.as_object().unwrap().contains_key("uri"));
-    assert!(args.as_object().unwrap().contains_key("from"));
-    assert!(args.as_object().unwrap().contains_key("to"));
+    assert!(args.as_object().unwrap().contains_key("current_title"));
+    assert!(args.as_object().unwrap().contains_key("new_title"));
 }
 
 /// Tool error on rename → ok:false, exit 1.
@@ -112,7 +112,7 @@ fn test_rename_tool_error() {
             "--to",
             "B",
         ])
-        .env("MOCK_TOOL_ERROR", "org-edit-rename")
+        .env("MOCK_TOOL_ERROR", "org-rename-headline")
         .output()
         .expect("failed to run org");
     assert_eq!(output.status.code(), Some(1));
@@ -149,7 +149,7 @@ fn test_tags_forwarded_as_array() {
     assert!(output.status.success());
     let log = std::fs::read_to_string(&log_path).expect("log must exist");
     let _ = std::fs::remove_file(&log_path);
-    let req = find_tools_call(&log, "org-edit-tags");
+    let req = find_tools_call(&log, "org-set-tags");
     let args = &req["params"]["arguments"];
     let tags = &args["tags"];
     assert!(tags.is_array(), "tags must be array");
@@ -178,7 +178,7 @@ fn test_tags_empty_sends_empty_array() {
     assert!(output.status.success());
     let log = std::fs::read_to_string(&log_path).expect("log must exist");
     let _ = std::fs::remove_file(&log_path);
-    let req = find_tools_call(&log, "org-edit-tags");
+    let req = find_tools_call(&log, "org-set-tags");
     let tags = &req["params"]["arguments"]["tags"];
     assert!(tags.is_array(), "tags must be array even when empty");
     assert!(
@@ -212,7 +212,7 @@ fn test_priority_with_value() {
     assert!(output.status.success());
     let log = std::fs::read_to_string(&log_path).expect("log must exist");
     let _ = std::fs::remove_file(&log_path);
-    let req = find_tools_call(&log, "org-edit-priority");
+    let req = find_tools_call(&log, "org-set-priority");
     let args = &req["params"]["arguments"];
     assert_eq!(args["priority"], serde_json::json!("A"));
     // Contract assertion
@@ -233,7 +233,7 @@ fn test_priority_none_sends_null() {
     assert!(output.status.success());
     let log = std::fs::read_to_string(&log_path).expect("log must exist");
     let _ = std::fs::remove_file(&log_path);
-    let req = find_tools_call(&log, "org-edit-priority");
+    let req = find_tools_call(&log, "org-set-priority");
     let args = &req["params"]["arguments"];
     // Key must be present (explicit null distinguishes "clear" from "missing")
     assert!(
@@ -272,7 +272,7 @@ fn test_log_note_forwarded() {
     assert!(output.status.success());
     let log = std::fs::read_to_string(&log_path).expect("log must exist");
     let _ = std::fs::remove_file(&log_path);
-    let req = find_tools_call(&log, "org-edit-log-note");
+    let req = find_tools_call(&log, "org-add-logbook-note");
     let args = &req["params"]["arguments"];
     assert_eq!(args["note"].as_str(), Some("hello"));
     assert_eq!(args["uri"].as_str(), Some("abc"), "uri must be stripped");
@@ -294,7 +294,7 @@ fn test_log_note_tool_error() {
             "--note",
             "x",
         ])
-        .env("MOCK_TOOL_ERROR", "org-edit-log-note")
+        .env("MOCK_TOOL_ERROR", "org-add-logbook-note")
         .output()
         .expect("failed to run org");
     assert_eq!(output.status.code(), Some(1));

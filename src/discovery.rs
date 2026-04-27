@@ -1,10 +1,9 @@
 /// Server auto-discovery: search `$PATH` for `emacs-mcp-stdio.sh`.
 ///
-/// PLAN §5.2 / ticket org-cli-qq7.
-///
-/// When `--server` is omitted, the CLI calls `discover_server()` to find the
-/// launcher in PATH before spawning. Commands that don't need a server (e.g.
-/// `schema`) skip discovery entirely.
+/// Ticket org-cli-qq7. The default launcher is `~/.config/emacs/emacs-mcp-stdio.sh`;
+/// use `--server <cmd>` to override. When `--server` is omitted, the CLI calls
+/// `discover_server()` to find the launcher in PATH before spawning. Commands that
+/// don't need a server (e.g. `schema`) skip discovery entirely.
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 
@@ -34,7 +33,7 @@ pub fn discover_server() -> Result<Vec<String>, String> {
 
     Err(
         "no --server specified and emacs-mcp-stdio.sh not found in $PATH; \
-         pass --server <cmd> or install the launcher (see PLAN §5.2)"
+         pass --server <cmd> or install emacs-mcp-stdio.sh into PATH"
             .to_string(),
     )
 }

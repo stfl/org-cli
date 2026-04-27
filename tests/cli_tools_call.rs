@@ -68,7 +68,13 @@ fn test_tools_call_org_read_headline_returns_text_as_json() {
 fn test_tools_call_without_args_flag() {
     // tools call without --args should still work (empty args)
     let output = org_bin()
-        .args(["--server", mock_bin(), "tools", "call", "org-clock-status"])
+        .args([
+            "--server",
+            mock_bin(),
+            "tools",
+            "call",
+            "org-clock-get-active",
+        ])
         .output()
         .expect("failed to run org");
 

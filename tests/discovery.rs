@@ -1,4 +1,4 @@
-/// Integration tests for server auto-discovery (PLAN §5.2, ticket org-cli-qq7).
+/// Integration tests for server auto-discovery (ticket org-cli-qq7).
 ///
 /// Tests cover:
 ///   1. Discovery succeeds when PATH contains an executable `emacs-mcp-stdio.sh`

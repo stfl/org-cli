@@ -1,4 +1,4 @@
-/// Exit-code matrix verification (PLAN §5.5).
+/// Exit-code matrix verification: 0=ok, 1=tool error from server, 2=usage/argument, 3=transport, 4=spawn/discovery.
 ///
 /// | 0 | success                          |
 /// | 1 | tool error returned by org-mcp   |

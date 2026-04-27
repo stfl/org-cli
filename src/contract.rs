@@ -1,7 +1,7 @@
 /// Command contract registry.
 ///
 /// This module defines a static, compile-time-known registry of every CLI
-/// command in PLAN §6 and §6.1. Each entry records the exact tool target,
+/// command exposed by the CLI. Each entry records the exact tool target,
 /// parameter shapes, and output characteristics needed for both schema
 /// introspection and future phase implementations.
 ///
@@ -73,7 +73,7 @@ pub enum ServerValue {
     /// Send the value in its natural JSON type.
     Native,
     /// Send a boolean as a JSON string ("true"/"false") instead of bool.
-    /// Used for clock-in --resolve per PLAN §5.6 §7.
+    /// Used for clock-in --resolve; see `org-mcp--tool-clock-in` in ../org-mcp/org-mcp.el.
     BoolAsString,
 }
 
@@ -207,7 +207,7 @@ pub const COMMANDS: &[CommandSpec] = &[
         path: &["outline"],
         summary: "List the outline of an org file",
         kind: TargetKind::Tool,
-        target: "org-outline",
+        target: "org-read-outline",
         params: &[ParamSpec {
             name: "file",
             server_name: "file",
@@ -361,7 +361,7 @@ pub const COMMANDS: &[CommandSpec] = &[
             },
             ParamSpec {
                 name: "from",
-                server_name: "from",
+                server_name: "current_state",
                 required: false,
                 repeated: false,
                 kind: ParamKind::KeyValue,
@@ -421,7 +421,7 @@ pub const COMMANDS: &[CommandSpec] = &[
             },
             ParamSpec {
                 name: "state",
-                server_name: "state",
+                server_name: "todo_state",
                 required: true,
                 repeated: false,
                 kind: ParamKind::KeyValue,
@@ -477,7 +477,7 @@ pub const COMMANDS: &[CommandSpec] = &[
         path: &["edit", "rename"],
         summary: "Rename a node headline",
         kind: TargetKind::Tool,
-        target: "org-edit-rename",
+        target: "org-rename-headline",
         params: &[
             ParamSpec {
                 name: "uri",
@@ -492,7 +492,7 @@ pub const COMMANDS: &[CommandSpec] = &[
             },
             ParamSpec {
                 name: "from",
-                server_name: "from",
+                server_name: "current_title",
                 required: true,
                 repeated: false,
                 kind: ParamKind::KeyValue,
@@ -503,7 +503,7 @@ pub const COMMANDS: &[CommandSpec] = &[
             },
             ParamSpec {
                 name: "to",
-                server_name: "to",
+                server_name: "new_title",
                 required: true,
                 repeated: false,
                 kind: ParamKind::KeyValue,
@@ -521,7 +521,7 @@ pub const COMMANDS: &[CommandSpec] = &[
     },
     // -----------------------------------------------------------------------
     // edit body
-    // NOTE: server param key is `resource_uri`, not `uri` — PLAN §5.6 §7
+    // NOTE: server param key is `resource_uri`, not `uri` — see `org-mcp--tool-edit-body` in ../org-mcp/org-mcp.el
     // -----------------------------------------------------------------------
     CommandSpec {
         path: &["edit", "body"],
@@ -531,7 +531,7 @@ pub const COMMANDS: &[CommandSpec] = &[
         params: &[
             ParamSpec {
                 name: "uri",
-                server_name: "resource_uri", // <— quirk documented in PLAN §7
+                server_name: "resource_uri", // <— quirk: org-mcp--tool-edit-body uses resource_uri, not uri
                 required: true,
                 repeated: false,
                 kind: ParamKind::Positional,
@@ -587,7 +587,7 @@ pub const COMMANDS: &[CommandSpec] = &[
         path: &["edit", "properties"],
         summary: "Edit node properties",
         kind: TargetKind::Tool,
-        target: "org-edit-properties",
+        target: "org-set-properties",
         params: &[
             ParamSpec {
                 name: "uri",
@@ -600,27 +600,31 @@ pub const COMMANDS: &[CommandSpec] = &[
                 server_value: ServerValue::Native,
                 description: "Node URI or identifier",
             },
+            // Both --set and --unset feed the server's single `properties`
+            // JSON object: --set k=v -> {k: v}, --unset k -> {k: null}.
+            // CLI surface keeps two flags for ergonomics; server_name reflects
+            // the merged target. See cmd_edit_properties in src/main.rs.
             ParamSpec {
                 name: "set",
-                server_name: "set",
+                server_name: "properties",
                 required: false,
                 repeated: true,
                 kind: ParamKind::KeyValue,
                 ty: ParamType::String,
                 uri_rule: UriRule::Na,
                 server_value: ServerValue::Native,
-                description: "Property to set in k=v form (repeatable)",
+                description: "Property to set in k=v form (repeatable; merged into `properties` object)",
             },
             ParamSpec {
                 name: "unset",
-                server_name: "unset",
+                server_name: "properties",
                 required: false,
                 repeated: true,
                 kind: ParamKind::KeyValue,
                 ty: ParamType::String,
                 uri_rule: UriRule::Na,
                 server_value: ServerValue::Native,
-                description: "Property key to remove (repeatable)",
+                description: "Property key to remove (repeatable; merged into `properties` object as null)",
             },
         ],
         output_shape: OutputShape::Tool {
@@ -636,7 +640,7 @@ pub const COMMANDS: &[CommandSpec] = &[
         path: &["edit", "tags"],
         summary: "Set tags on a node (replaces existing tags)",
         kind: TargetKind::Tool,
-        target: "org-edit-tags",
+        target: "org-set-tags",
         params: &[
             ParamSpec {
                 name: "uri",
@@ -674,7 +678,7 @@ pub const COMMANDS: &[CommandSpec] = &[
         path: &["edit", "priority"],
         summary: "Set the priority of a node",
         kind: TargetKind::Tool,
-        target: "org-edit-priority",
+        target: "org-set-priority",
         params: &[
             ParamSpec {
                 name: "uri",
@@ -712,7 +716,7 @@ pub const COMMANDS: &[CommandSpec] = &[
         path: &["edit", "scheduled"],
         summary: "Set or clear the SCHEDULED date of a node",
         kind: TargetKind::Tool,
-        target: "org-edit-scheduled",
+        target: "org-update-scheduled",
         params: &[
             ParamSpec {
                 name: "uri",
@@ -727,7 +731,7 @@ pub const COMMANDS: &[CommandSpec] = &[
             },
             ParamSpec {
                 name: "date",
-                server_name: "date",
+                server_name: "scheduled",
                 required: false,
                 repeated: false,
                 kind: ParamKind::KeyValue,
@@ -750,7 +754,7 @@ pub const COMMANDS: &[CommandSpec] = &[
         path: &["edit", "deadline"],
         summary: "Set or clear the DEADLINE date of a node",
         kind: TargetKind::Tool,
-        target: "org-edit-deadline",
+        target: "org-update-deadline",
         params: &[
             ParamSpec {
                 name: "uri",
@@ -765,7 +769,7 @@ pub const COMMANDS: &[CommandSpec] = &[
             },
             ParamSpec {
                 name: "date",
-                server_name: "date",
+                server_name: "deadline",
                 required: false,
                 repeated: false,
                 kind: ParamKind::KeyValue,
@@ -788,7 +792,7 @@ pub const COMMANDS: &[CommandSpec] = &[
         path: &["edit", "log-note"],
         summary: "Add a logbook note to a node",
         kind: TargetKind::Tool,
-        target: "org-edit-log-note",
+        target: "org-add-logbook-note",
         params: &[
             ParamSpec {
                 name: "uri",
@@ -826,7 +830,7 @@ pub const COMMANDS: &[CommandSpec] = &[
         path: &["clock", "status"],
         summary: "Get the current clock status",
         kind: TargetKind::Tool,
-        target: "org-clock-status",
+        target: "org-clock-get-active",
         params: &[],
         output_shape: OutputShape::Tool {
             server_returns: ServerReturns::JsonObject,
@@ -836,7 +840,7 @@ pub const COMMANDS: &[CommandSpec] = &[
     },
     // -----------------------------------------------------------------------
     // clock in
-    // NOTE: --resolve must be sent as a string, not a JSON bool — PLAN §5.6 §7
+    // NOTE: --resolve must be sent as a string, not a JSON bool — see `org-mcp--tool-clock-in` in ../org-mcp/org-mcp.el
     // -----------------------------------------------------------------------
     CommandSpec {
         path: &["clock", "in"],
@@ -857,7 +861,7 @@ pub const COMMANDS: &[CommandSpec] = &[
             },
             ParamSpec {
                 name: "at",
-                server_name: "at",
+                server_name: "start_time",
                 required: false,
                 repeated: false,
                 kind: ParamKind::KeyValue,
@@ -874,7 +878,7 @@ pub const COMMANDS: &[CommandSpec] = &[
                 kind: ParamKind::Flag,
                 ty: ParamType::Bool,
                 uri_rule: UriRule::Na,
-                server_value: ServerValue::BoolAsString, // <— PLAN §7 quirk
+                server_value: ServerValue::BoolAsString, // <— string-shaped bool; see org-mcp--tool-clock-in
                 description: "Resolve dangling clocks before clocking in (sent as string to server)",
             },
         ],
@@ -906,7 +910,7 @@ pub const COMMANDS: &[CommandSpec] = &[
             },
             ParamSpec {
                 name: "at",
-                server_name: "at",
+                server_name: "end_time",
                 required: false,
                 repeated: false,
                 kind: ParamKind::KeyValue,
@@ -993,7 +997,7 @@ pub const COMMANDS: &[CommandSpec] = &[
             },
             ParamSpec {
                 name: "at",
-                server_name: "at",
+                server_name: "start",
                 required: true,
                 repeated: false,
                 kind: ParamKind::KeyValue,
@@ -1016,7 +1020,7 @@ pub const COMMANDS: &[CommandSpec] = &[
         path: &["clock", "dangling"],
         summary: "List dangling (unclosed) clock entries",
         kind: TargetKind::Tool,
-        target: "org-clock-dangling",
+        target: "org-clock-find-dangling",
         params: &[],
         output_shape: OutputShape::Tool {
             server_returns: ServerReturns::JsonObject,
@@ -1031,7 +1035,7 @@ pub const COMMANDS: &[CommandSpec] = &[
         path: &["config", "todo"],
         summary: "Get configured TODO states",
         kind: TargetKind::Tool,
-        target: "org-config-todo",
+        target: "org-get-todo-config",
         params: &[],
         output_shape: OutputShape::Tool {
             server_returns: ServerReturns::JsonObject,
@@ -1046,7 +1050,7 @@ pub const COMMANDS: &[CommandSpec] = &[
         path: &["config", "tags"],
         summary: "Get configured tags",
         kind: TargetKind::Tool,
-        target: "org-config-tags",
+        target: "org-get-tag-config",
         params: &[],
         output_shape: OutputShape::Tool {
             server_returns: ServerReturns::JsonObject,
@@ -1061,7 +1065,7 @@ pub const COMMANDS: &[CommandSpec] = &[
         path: &["config", "tag-candidates"],
         summary: "Get tag candidates",
         kind: TargetKind::Tool,
-        target: "org-config-tag-candidates",
+        target: "org-get-tag-candidates",
         params: &[],
         output_shape: OutputShape::Tool {
             server_returns: ServerReturns::JsonObject,
@@ -1076,7 +1080,7 @@ pub const COMMANDS: &[CommandSpec] = &[
         path: &["config", "priority"],
         summary: "Get priority configuration",
         kind: TargetKind::Tool,
-        target: "org-config-priority",
+        target: "org-get-priority-config",
         params: &[],
         output_shape: OutputShape::Tool {
             server_returns: ServerReturns::JsonObject,
@@ -1091,7 +1095,7 @@ pub const COMMANDS: &[CommandSpec] = &[
         path: &["config", "files"],
         summary: "Get configured org files",
         kind: TargetKind::Tool,
-        target: "org-config-files",
+        target: "org-get-allowed-files",
         params: &[],
         output_shape: OutputShape::Tool {
             server_returns: ServerReturns::JsonObject,
@@ -1106,7 +1110,7 @@ pub const COMMANDS: &[CommandSpec] = &[
         path: &["config", "clock"],
         summary: "Get clock configuration",
         kind: TargetKind::Tool,
-        target: "org-config-clock",
+        target: "org-get-clock-config",
         params: &[],
         output_shape: OutputShape::Tool {
             server_returns: ServerReturns::JsonObject,

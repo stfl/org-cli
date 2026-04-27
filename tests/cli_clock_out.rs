@@ -23,7 +23,7 @@ fn temp_log(tag: &str) -> std::path::PathBuf {
     ))
 }
 
-fn find_tools_call<'a>(log: &'a str, tool: &str) -> serde_json::Value {
+fn find_tools_call(log: &str, tool: &str) -> serde_json::Value {
     log.lines()
         .filter_map(|line| serde_json::from_str(line).ok())
         .find(|v: &serde_json::Value| {
@@ -129,7 +129,11 @@ fn test_clock_out_at_forwarded() {
     let _ = std::fs::remove_file(&log_path);
     let req = find_tools_call(&log, "org-clock-out");
     let args = &req["params"]["arguments"];
-    assert_eq!(args["at"].as_str(), Some(ts), "at must be forwarded");
+    assert_eq!(
+        args["end_time"].as_str(),
+        Some(ts),
+        "end_time must be forwarded"
+    );
 }
 
 /// No --at → arguments object does NOT contain the "at" key.
@@ -149,8 +153,8 @@ fn test_clock_out_no_at_key_absent() {
     let req = find_tools_call(&log, "org-clock-out");
     let args = &req["params"]["arguments"];
     assert!(
-        !args.as_object().unwrap().contains_key("at"),
-        "at key must be absent when --at not given"
+        !args.as_object().unwrap().contains_key("end_time"),
+        "end_time key must be absent when --at not given"
     );
 }
 

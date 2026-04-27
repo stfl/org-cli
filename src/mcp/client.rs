@@ -16,8 +16,19 @@ impl Client {
     /// Spawn the server, perform the initialize handshake, and send
     /// `notifications/initialized`. The client is ready to issue requests
     /// after this returns.
+    #[allow(dead_code)] // used by integration tests; main bin uses connect_with_timeout
     pub fn connect(argv: &[String]) -> Result<Self, McpError> {
-        let transport = Transport::spawn(argv)?;
+        Self::connect_with_timeout(argv, None)
+    }
+
+    /// Like `connect`, but configures a per-`recv()` timeout on the underlying
+    /// transport. `None` or `Some(Duration::ZERO)` disables the gate.
+    pub fn connect_with_timeout(
+        argv: &[String],
+        timeout: Option<std::time::Duration>,
+    ) -> Result<Self, McpError> {
+        let mut transport = Transport::spawn(argv)?;
+        transport.set_timeout(timeout);
         let mut client = Client {
             transport,
             next_id: 1,
