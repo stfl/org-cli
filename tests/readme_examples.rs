@@ -125,3 +125,13 @@ fn test_readme_query_run() {
         .expect("failed to run org");
     assert_ok_envelope(output, "query run");
 }
+
+/// org --server <mock> query '(todo "TODO")'  (bare form)
+#[test]
+fn test_readme_query_bare() {
+    let output = org_bin()
+        .args(["--server", mock_bin(), "query", r#"(todo "TODO")"#])
+        .output()
+        .expect("failed to run org");
+    assert_ok_envelope(output, "query bare");
+}

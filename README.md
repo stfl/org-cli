@@ -6,19 +6,31 @@ Synchronous Rust CLI for the `org-mcp` Emacs MCP server. Designed for LLM agents
 
 ## Install
 
+Cargo:
+
 ```
 cargo build --release
 cp target/release/org ~/bin/
 ```
 
-## Usage
-
-Always supply a launcher with `--server <cmd>` (auto-discovery is a follow-up — see PLAN §5.2).
+Nix flake:
 
 ```
-org --server emacs-mcp-stdio.sh tools list
+nix build .#default        # builds and tests; binary at ./result/bin/org
+nix run .#default -- --help
+```
+
+A devShell with cargo/rustc/rustfmt/clippy/rust-analyzer is available via `nix develop`.
+
+## Usage
+
+Pass a launcher with `--server <cmd>` or omit the flag to auto-discover `emacs-mcp-stdio.sh` in `$PATH`.
+
+```
+org tools list                                       # uses PATH-discovered launcher
+org --server emacs-mcp-stdio.sh tools list           # explicit launcher
 org --server emacs-mcp-stdio.sh read org://<uuid>
-org --server emacs-mcp-stdio.sh schema
+org schema                                           # local; no server needed
 ```
 
 ## JSON envelope
@@ -110,7 +122,8 @@ org --server emacs-mcp-stdio.sh clock in org://abc --resolve
 # List all tools
 org --server emacs-mcp-stdio.sh tools list
 
-# Query org-ql
+# Query org-ql (bare form or explicit `run`)
+org --server emacs-mcp-stdio.sh query '(todo "TODO")'
 org --server emacs-mcp-stdio.sh query run '(todo "TODO")'
 ```
 
@@ -141,6 +154,10 @@ The mock org-mcp server lives at `tests/fixtures/mock_org_mcp/main.rs` and is sp
 - `MOCK_NO_GTD=1` — omit GTD trio from tools/list
 - `MOCK_RECORD_REQUESTS=1` + `MOCK_REQUEST_LOG=<path>` — log incoming requests for assertions
 - `MOCK_DIE_AFTER_HANDSHAKE=1` — exit mid-protocol to test transport failure (exit code 3)
+
+## CI
+
+GitHub Actions workflow at `.github/workflows/ci.yml` runs `nix flake check` and `nix build .#default` on every push/PR. The workflow uses `https://cache.garnix.io` as a substituter, so it picks up artifacts already built by [Garnix](https://garnix.io) on the same flake. To enable Garnix builds (free for OSS), install the Garnix GitHub App on the repo — `garnix.yaml` already declares the build matrix.
 
 ## See also
 
