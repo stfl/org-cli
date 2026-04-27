@@ -1,4 +1,5 @@
 mod cli;
+mod discovery;
 mod mcp;
 mod uri;
 
@@ -36,10 +37,20 @@ fn run(cli: Cli, compact: bool) -> i32 {
     }
 
     // Resolve server argv for all other commands.
-    let argv = match cli.server_argv() {
-        Ok(a) => a,
-        Err(msg) => {
-            return print_error(ErrorKind::Usage, 2, msg, json!(null), 2, compact);
+    // If --server is omitted, try auto-discovery of emacs-mcp-stdio.sh in PATH.
+    let argv = if cli.server.is_some() || !cli.server_args.is_empty() {
+        match cli.server_argv() {
+            Ok(a) => a,
+            Err(msg) => {
+                return print_error(ErrorKind::Usage, 2, msg, json!(null), 2, compact);
+            }
+        }
+    } else {
+        match discovery::discover_server() {
+            Ok(a) => a,
+            Err(msg) => {
+                return print_error(ErrorKind::Usage, 2, msg, json!(null), 4, compact);
+            }
         }
     };
 
@@ -201,10 +212,29 @@ fn cmd_outline(argv: &[String], file: &str, compact: bool) -> i32 {
 
 fn cmd_query(argv: &[String], args: &QueryArgs, compact: bool) -> i32 {
     match &args.kind {
-        QueryKind::Run { ql_expr, files } => cmd_query_run(argv, ql_expr, files, compact),
-        QueryKind::Inbox => cmd_query_gtd(argv, "query-inbox", None, compact),
-        QueryKind::Next { tag } => cmd_query_gtd(argv, "query-next", tag.as_deref(), compact),
-        QueryKind::Backlog { tag } => cmd_query_gtd(argv, "query-backlog", tag.as_deref(), compact),
+        Some(QueryKind::Run { ql_expr, files }) => cmd_query_run(argv, ql_expr, files, compact),
+        Some(QueryKind::Inbox) => cmd_query_gtd(argv, "query-inbox", None, compact),
+        Some(QueryKind::Next { tag }) => cmd_query_gtd(argv, "query-next", tag.as_deref(), compact),
+        Some(QueryKind::Backlog { tag }) => {
+            cmd_query_gtd(argv, "query-backlog", tag.as_deref(), compact)
+        }
+        None => {
+            // Bare form: `org query "<expr>"` (PLAN §6)
+            if let Some(expr) = &args.ql_expr {
+                cmd_query_run(argv, expr, &args.files, compact)
+            } else {
+                // `org query` with no args or subcommand — usage error
+                print_error(
+                    ErrorKind::Usage,
+                    2,
+                    "org query requires an expression or subcommand (run/inbox/next/backlog)"
+                        .to_string(),
+                    json!(null),
+                    2,
+                    compact,
+                )
+            }
+        }
     }
 }
 

@@ -114,10 +114,22 @@ org --server emacs-mcp-stdio.sh tools list
 org --server emacs-mcp-stdio.sh query run '(todo "TODO")'
 ```
 
+## Live integration test
+
+The default `cargo test` run uses an in-process mock org-mcp. To verify against a real Emacs MCP server:
+
+```sh
+ORG_LIVE_TEST=1 cargo test --test live_org_mcp -- --test-threads=1
+```
+
+Optional env vars:
+- `ORG_LIVE_SERVER=<path>`      — override discovery; use this exact launcher
+- `ORG_LIVE_FILES=<file.org>`   — enables outline/read tests against a real file
+
 ## Development
 
 ```
-cargo test          # full suite (174 tests)
+cargo test          # full suite (mock-only; live tests are gated on ORG_LIVE_TEST=1)
 cargo clippy -- -D warnings
 cargo fmt
 ```

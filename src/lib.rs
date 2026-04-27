@@ -4,5 +4,7 @@
 /// library target so that integration tests under `tests/` can import
 /// types directly (e.g. `org_cli::contract`).
 pub mod contract;
+pub mod discovery;
+pub mod mcp;
 pub mod output;
 pub mod uri;

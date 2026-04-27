@@ -10,10 +10,11 @@
 /// Example:
 ///   org --server emacs-mcp-stdio.sh --server-arg --socket --server-arg /tmp/mcp.sock tools list
 ///
-/// # Discovery (TODO Phase 2)
+/// # Discovery
 ///
-/// When `--server` is not provided, the CLI will search PATH for
-/// `emacs-mcp-stdio.sh`. This is not yet implemented.
+/// When `--server` is not provided, the CLI searches `$PATH` for
+/// `emacs-mcp-stdio.sh` (see `src/discovery.rs`). If not found, a usage
+/// error (exit 4) is returned.
 use clap::{Parser, Subcommand};
 
 #[derive(Debug, Parser)]
@@ -115,16 +116,26 @@ pub enum ConfigKind {
 
 /// Arguments for the `query` subcommand.
 ///
-/// Note: `org query run "<expr>"` is the explicit form. PLAN §6 shows
-/// `org query <ql-expr>` directly (without `run`), but clap-derive cannot
-/// express a bare positional that also has named subcommands without using
-/// `#[command(external_subcommand)]`. Using an explicit `run` subcommand is
-/// the simplest faithful path for now. A follow-up issue should track the
-/// surface deviation.
+/// Supports two forms:
+///   - `org query run "<expr>"` — explicit subcommand form (always works)
+///   - `org query "<expr>"` — bare positional form (PLAN §6)
+///
+/// When both `ql_expr` (positional) and no subcommand are present, the bare
+/// expr is dispatched as `QueryKind::Run`. If a known subcommand (`run`,
+/// `inbox`, `next`, `backlog`) is given, it takes priority and `ql_expr`
+/// must be absent (`args_conflicts_with_subcommands = true`).
 #[derive(Debug, clap::Args)]
+#[command(args_conflicts_with_subcommands = true, subcommand_required = false)]
 pub struct QueryArgs {
+    /// org-ql query expression (bare form: `org query "<expr>"`).
+    pub ql_expr: Option<String>,
+
+    /// Org files to search (repeatable); used with the bare expression form.
+    #[arg(long = "files", value_name = "FILE")]
+    pub files: Vec<String>,
+
     #[command(subcommand)]
-    pub kind: QueryKind,
+    pub kind: Option<QueryKind>,
 }
 
 /// The specific query variant.
@@ -388,6 +399,7 @@ pub enum ToolsCmd {
 impl Cli {
     /// Build the argv list for spawning the server process.
     /// Returns an error string if no server is configured.
+    /// Discovery (PATH search) is handled in `main.rs::run()` before this is called.
     pub fn server_argv(&self) -> Result<Vec<String>, String> {
         match &self.server {
             Some(cmd) => {
@@ -395,10 +407,7 @@ impl Cli {
                 argv.extend(self.server_args.clone());
                 Ok(argv)
             }
-            None => {
-                // TODO Phase 2: search PATH for emacs-mcp-stdio.sh
-                Err("no --server specified; automatic discovery not yet implemented".to_string())
-            }
+            None => Err("no --server specified".to_string()),
         }
     }
 }
