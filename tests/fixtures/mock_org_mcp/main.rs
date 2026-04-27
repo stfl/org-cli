@@ -485,6 +485,23 @@ fn handle_tools_call(id: Value, params: Option<Value>) -> Response {
         };
     }
 
+    // Under MOCK_NO_GTD=1, GTD tools were stripped from tools/list. If the
+    // client calls one anyway, behave like a real MCP server: return JSON-RPC
+    // method-not-found (-32601). Mirrors what org-mcp's mcp-server-lib emits
+    // for unknown tools.
+    if no_gtd() && matches!(tool_name.as_str(), "query-inbox" | "query-next" | "query-backlog") {
+        return Response {
+            jsonrpc: "2.0".to_string(),
+            id,
+            result: None,
+            error: Some(RpcError {
+                code: -32601,
+                message: format!("Tool not found: {}", tool_name),
+                data: None,
+            }),
+        };
+    }
+
     let content = match tool_name.as_str() {
         "org-read" => {
             let uri = arguments

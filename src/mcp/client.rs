@@ -131,6 +131,10 @@ impl Client {
     ///
     /// Calls tools/list and scans the names. No caching — every call issues
     /// a fresh tools/list request (Phase 9 can add caching if needed).
+    ///
+    /// Not used on the GTD hot path (we try-call and handle -32601 instead),
+    /// but retained for callers that genuinely want a discovery probe.
+    #[allow(dead_code)]
     pub fn server_has_tool(&mut self, tool_name: &str) -> Result<bool, McpError> {
         let tools = self.tools_list()?;
         Ok(tools.iter().any(|t| {

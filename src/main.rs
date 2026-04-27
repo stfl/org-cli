@@ -266,33 +266,18 @@ fn cmd_query_run(argv: &[String], ql_expr: &str, files: &[String], compact: bool
     }
 }
 
-/// Run a GTD query tool after checking capability discovery.
-/// If the tool is not advertised by the server, returns a usage error (exit 2).
+/// Run a GTD query tool. GTD support is optional and conditional on runtime
+/// config in org-mcp, so the server may not advertise these tools.
+///
+/// Strategy: try-call first; if the server returns JSON-RPC method-not-found
+/// (-32601), fall back to a usage error envelope. This costs ONE round-trip
+/// in the happy path — calling tools/list as a pre-check would always cost
+/// two.
 fn cmd_query_gtd(argv: &[String], tool_name: &str, tag: Option<&str>, compact: bool) -> i32 {
     let mut client = match connect(argv, compact) {
         Ok(c) => c,
         Err(code) => return code,
     };
-
-    // Capability check — GTD tools are optional and conditional on runtime config.
-    match client.server_has_tool(tool_name) {
-        Ok(true) => {}
-        Ok(false) => {
-            return print_error(
-                ErrorKind::Usage,
-                -1,
-                format!(
-                    "GTD tool '{}' not advertised by server \
-                     (org-mcp GTD support is optional and conditional on runtime config)",
-                    tool_name
-                ),
-                json!(null),
-                2,
-                compact,
-            );
-        }
-        Err(e) => return handle_mcp_error(e, compact),
-    }
 
     let arguments = match tag {
         Some(t) => json!({ "tag": t }),
@@ -305,6 +290,18 @@ fn cmd_query_gtd(argv: &[String], tool_name: &str, tag: Option<&str>, compact: b
             print_success(data, compact);
             0
         }
+        Err(McpError::ToolError { code: -32601, .. }) => print_error(
+            ErrorKind::Usage,
+            -1,
+            format!(
+                "GTD tool '{}' not advertised by server \
+                 (org-mcp GTD support is optional and conditional on runtime config)",
+                tool_name
+            ),
+            json!(null),
+            2,
+            compact,
+        ),
         Err(e) => handle_mcp_error(e, compact),
     }
 }
