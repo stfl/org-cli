@@ -141,6 +141,16 @@ Optional env vars:
 
 ## Development
 
+A `Justfile` provides curated shortcuts — run `just --list` to see all targets.
+
+```
+just check          # fmt + clippy + cargo test + nix flake check (mirrors CI)
+just update         # cargo update + nix flake update
+just live           # live integration test (requires running Emacs MCP server)
+```
+
+Raw cargo commands still work directly:
+
 ```
 cargo test          # full suite (mock-only; live tests are gated on ORG_LIVE_TEST=1)
 cargo clippy -- -D warnings
