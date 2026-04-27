@@ -18,7 +18,7 @@ jobs:
           extra_nix_config: |
             experimental-features = nix-command flakes
             extra-substituters = https://cache.garnix.io
-            extra-trusted-public-keys = cache.garnix.io:CTFPyKSLcx5RMAKcqVQVbeasQiZxd_xuW9mwYjfqxKE=
+            extra-trusted-public-keys = cache.garnix.io:CTFPyKSLcx5RMJKfLo5EEPUObbA78b0YQ2DTCJXqr9g=
 
       - name: nix flake check
         run: nix flake check --print-build-logs --no-build
