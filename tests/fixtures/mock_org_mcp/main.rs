@@ -5,10 +5,12 @@
 /// and tools/call.
 ///
 /// Environment variables:
-///   MOCK_TOOL_ERROR=<tool_name>  — that tool returns a JSON-RPC error
-///   MOCK_NO_GTD=1               — omit GTD tools from tools/list
-///   MOCK_RECORD_REQUESTS=1      — write each received request as a JSON line to MOCK_REQUEST_LOG
-///   MOCK_REQUEST_LOG=<path>     — file path for request log (used with MOCK_RECORD_REQUESTS)
+///   MOCK_TOOL_ERROR=<tool_name>      — that tool returns a JSON-RPC error
+///   MOCK_TOOL_ERROR_DATA=<json>      — attach this JSON value as error.data (used with MOCK_TOOL_ERROR)
+///   MOCK_NO_GTD=1                    — omit GTD tools from tools/list
+///   MOCK_RECORD_REQUESTS=1           — write each received request as a JSON line to MOCK_REQUEST_LOG
+///   MOCK_REQUEST_LOG=<path>          — file path for request log (used with MOCK_RECORD_REQUESTS)
+///   MOCK_DIE_AFTER_HANDSHAKE=1       — close stdout immediately after sending the initialize response
 use std::io::{self, BufRead, Write};
 
 use serde::{Deserialize, Serialize};
@@ -43,6 +45,16 @@ struct RpcError {
 
 fn tool_error_name() -> Option<String> {
     std::env::var("MOCK_TOOL_ERROR").ok()
+}
+
+fn tool_error_data() -> Option<Value> {
+    std::env::var("MOCK_TOOL_ERROR_DATA")
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+}
+
+fn die_after_handshake() -> bool {
+    std::env::var("MOCK_DIE_AFTER_HANDSHAKE").as_deref() == Ok("1")
 }
 
 fn no_gtd() -> bool {
@@ -397,8 +409,8 @@ fn tools_list() -> Value {
     json!({ "tools": tools })
 }
 
-fn handle_initialize(id: Value) -> Response {
-    Response {
+fn handle_initialize(id: Value, out: &mut impl Write) {
+    let resp = Response {
         jsonrpc: "2.0".to_string(),
         id,
         result: Some(json!({
@@ -412,6 +424,15 @@ fn handle_initialize(id: Value) -> Response {
             }
         })),
         error: None,
+    };
+    let serialized = serde_json::to_string(&resp).unwrap();
+    writeln!(out, "{}", serialized).unwrap();
+    out.flush().unwrap();
+
+    // If MOCK_DIE_AFTER_HANDSHAKE=1, close stdout now to simulate a mid-protocol
+    // transport failure. The client will get EOF on its next recv() call.
+    if die_after_handshake() {
+        std::process::exit(0);
     }
 }
 
@@ -444,7 +465,7 @@ fn handle_tools_call(id: Value, params: Option<Value>) -> Response {
             error: Some(RpcError {
                 code: -32000,
                 message: "Invalid input".to_string(),
-                data: None,
+                data: tool_error_data(),
             }),
         };
     }
@@ -595,6 +616,164 @@ fn handle_tools_call(id: Value, params: Option<Value>) -> Response {
                 "text": serde_json::to_string(&payload).unwrap()
             }])
         }
+        "org-clock-status" => {
+            let payload = json!({
+                "clocked_in": true,
+                "current": {
+                    "uri": "org://current-task",
+                    "title": "Working",
+                    "since": "2026-04-27T08:00:00Z"
+                }
+            });
+            json!([{
+                "type": "text",
+                "text": serde_json::to_string(&payload).unwrap()
+            }])
+        }
+        "org-clock-in" => {
+            // Echo arguments back so tests can assert exact wire format.
+            // Critically: resolve is echoed exactly as received (string or bool)
+            // so tests can assert it arrived as a JSON STRING "true"/"false".
+            let uri = arguments.get("uri").and_then(Value::as_str).unwrap_or("");
+            let at = arguments.get("at").cloned().unwrap_or(Value::Null);
+            let resolve = arguments.get("resolve").cloned().unwrap_or(Value::Null);
+            let payload = json!({
+                "success": true,
+                "uri": format!("org://{}", uri),
+                "at": at,
+                "resolve": resolve,
+            });
+            json!([{
+                "type": "text",
+                "text": serde_json::to_string(&payload).unwrap()
+            }])
+        }
+        "org-clock-out" => {
+            // Echo uri if present, else use "current" to indicate no-uri case.
+            let uri_val = arguments.get("uri").and_then(Value::as_str);
+            let uri_str = uri_val
+                .map(|u| format!("org://{}", u))
+                .unwrap_or_else(|| "org://current".to_string());
+            let at = arguments.get("at").cloned().unwrap_or(Value::Null);
+            let payload = json!({
+                "success": true,
+                "uri": uri_str,
+                "at": at,
+            });
+            json!([{
+                "type": "text",
+                "text": serde_json::to_string(&payload).unwrap()
+            }])
+        }
+        "org-clock-add" => {
+            let uri = arguments.get("uri").and_then(Value::as_str).unwrap_or("");
+            let start = arguments.get("start").cloned().unwrap_or(Value::Null);
+            let end = arguments.get("end").cloned().unwrap_or(Value::Null);
+            let payload = json!({
+                "success": true,
+                "uri": format!("org://{}", uri),
+                "start": start,
+                "end": end,
+            });
+            json!([{
+                "type": "text",
+                "text": serde_json::to_string(&payload).unwrap()
+            }])
+        }
+        "org-clock-delete" => {
+            let uri = arguments.get("uri").and_then(Value::as_str).unwrap_or("");
+            let at = arguments.get("at").cloned().unwrap_or(Value::Null);
+            let payload = json!({
+                "success": true,
+                "uri": format!("org://{}", uri),
+                "at": at,
+            });
+            json!([{
+                "type": "text",
+                "text": serde_json::to_string(&payload).unwrap()
+            }])
+        }
+        "org-clock-dangling" => {
+            let payload = json!({
+                "dangling": [{
+                    "uri": "org://orphan-1",
+                    "title": "Unterminated clock",
+                    "start": "2026-04-26T22:00:00Z"
+                }],
+                "count": 1
+            });
+            json!([{
+                "type": "text",
+                "text": serde_json::to_string(&payload).unwrap()
+            }])
+        }
+        "org-config-todo" => {
+            let payload = json!({
+                "keywords": ["TODO", "NEXT", "WAITING", "DONE", "CANCELLED"],
+                "groups": [
+                    {"name": "todo", "keywords": ["TODO", "NEXT", "WAITING"]},
+                    {"name": "done", "keywords": ["DONE", "CANCELLED"]}
+                ]
+            });
+            json!([{
+                "type": "text",
+                "text": serde_json::to_string(&payload).unwrap()
+            }])
+        }
+        "org-config-tags" => {
+            let payload = json!({
+                "tags": ["work", "home", "urgent", "read"]
+            });
+            json!([{
+                "type": "text",
+                "text": serde_json::to_string(&payload).unwrap()
+            }])
+        }
+        "org-config-tag-candidates" => {
+            let payload = json!({
+                "candidates": [
+                    {"tag": "work", "count": 42},
+                    {"tag": "home", "count": 17}
+                ]
+            });
+            json!([{
+                "type": "text",
+                "text": serde_json::to_string(&payload).unwrap()
+            }])
+        }
+        "org-config-priority" => {
+            let payload = json!({
+                "priorities": ["A", "B", "C"],
+                "default": "B"
+            });
+            json!([{
+                "type": "text",
+                "text": serde_json::to_string(&payload).unwrap()
+            }])
+        }
+        "org-config-files" => {
+            let payload = json!({
+                "agenda_files": [
+                    "/home/user/.org/inbox.org",
+                    "/home/user/.org/projects.org"
+                ]
+            });
+            json!([{
+                "type": "text",
+                "text": serde_json::to_string(&payload).unwrap()
+            }])
+        }
+        "org-config-clock" => {
+            let payload = json!({
+                "persist": true,
+                "resolve_strategy": "prompt",
+                "idle_minutes": 15
+            });
+            json!([{
+                "type": "text",
+                "text": serde_json::to_string(&payload).unwrap()
+            }])
+        }
         _ => {
             // Generic: echo args + success
             let uri = arguments
@@ -661,8 +840,13 @@ fn main() {
 
         let id = req.id.unwrap_or(Value::Null);
 
+        // initialize writes directly (and may exit for MOCK_DIE_AFTER_HANDSHAKE).
+        if req.method == "initialize" {
+            handle_initialize(id, &mut out);
+            continue;
+        }
+
         let response = match req.method.as_str() {
-            "initialize" => handle_initialize(id),
             "tools/list" => handle_tools_list(id),
             "tools/call" => handle_tools_call(id, req.params),
             other => Response {

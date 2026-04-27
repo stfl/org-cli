@@ -64,7 +64,12 @@ impl Client {
                 .and_then(Value::as_str)
                 .unwrap_or("unknown error")
                 .to_string();
-            return Err(McpError::ToolError { code, message });
+            let data = err.get("data").cloned().unwrap_or(Value::Null);
+            return Err(McpError::ToolError {
+                code,
+                message,
+                data,
+            });
         }
 
         // Extract result

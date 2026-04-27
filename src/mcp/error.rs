@@ -1,11 +1,17 @@
 /// MCP client error types.
+use serde_json::Value;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum McpError {
-    /// JSON-RPC error returned by the server (code, message).
+    /// JSON-RPC error returned by the server (code, message, optional data).
     #[error("tool error {code}: {message}")]
-    ToolError { code: i64, message: String },
+    ToolError {
+        code: i64,
+        message: String,
+        /// The `error.data` field from the JSON-RPC error response, if present.
+        data: Value,
+    },
 
     /// Transport-level failure (I/O, framing, JSON parse).
     #[error("transport error: {0}")]
@@ -44,6 +50,14 @@ impl McpError {
         match self {
             McpError::ToolError { code, .. } => *code,
             _ => -1,
+        }
+    }
+
+    /// The structured `error.data` payload from the JSON-RPC response, if any.
+    pub fn rpc_data(&self) -> Value {
+        match self {
+            McpError::ToolError { data, .. } => data.clone(),
+            _ => Value::Null,
         }
     }
 }

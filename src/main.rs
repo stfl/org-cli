@@ -5,7 +5,10 @@ mod uri;
 use clap::Parser;
 use serde_json::{Value, json};
 
-use cli::{Cli, Commands, QueryArgs, QueryKind, SchemaArgs, TodoArgs, TodoKind, ToolsCmd};
+use cli::{
+    Cli, ClockArgs, ClockKind, Commands, ConfigArgs, ConfigKind, EditArgs, EditKind, QueryArgs,
+    QueryKind, SchemaArgs, TodoArgs, TodoKind, ToolsCmd,
+};
 use mcp::client::Client;
 use mcp::error::McpError;
 use org_cli::contract;
@@ -46,6 +49,9 @@ fn run(cli: Cli, compact: bool) -> i32 {
         Commands::Outline { file } => cmd_outline(&argv, file, compact),
         Commands::Query(query_args) => cmd_query(&argv, query_args, compact),
         Commands::Todo(todo_args) => cmd_todo(&argv, todo_args, compact),
+        Commands::Edit(edit_args) => cmd_edit(&argv, edit_args, compact),
+        Commands::Clock(clock_args) => cmd_clock(&argv, clock_args, compact),
+        Commands::Config(config_args) => cmd_config(&argv, config_args, compact),
         Commands::Tools { cmd } => match cmd {
             ToolsCmd::List => cmd_tools_list(&argv, compact),
             ToolsCmd::Call { name, args } => {
@@ -106,14 +112,8 @@ fn handle_mcp_error(e: McpError, compact: bool) -> i32 {
         "tool" => ErrorKind::Tool,
         _ => ErrorKind::Transport,
     };
-    print_error(
-        kind,
-        e.rpc_code(),
-        e.to_string(),
-        json!(null),
-        exit_code,
-        compact,
-    )
+    let data = e.rpc_data();
+    print_error(kind, e.rpc_code(), e.to_string(), data, exit_code, compact)
 }
 
 fn cmd_tools_list(argv: &[String], compact: bool) -> i32 {
@@ -379,6 +379,409 @@ fn cmd_todo_add(
         Ok(content) => {
             let data = extract_result(content);
             print_success(data, compact);
+            0
+        }
+        Err(e) => handle_mcp_error(e, compact),
+    }
+}
+
+/// Parse `k=v` strings into a JSON object. Splits on the first `=` only.
+/// Returns Err with a usage-error message if any pair has no `=`.
+fn parse_set_pairs(pairs: &[String]) -> Result<serde_json::Map<String, Value>, String> {
+    let mut map = serde_json::Map::new();
+    for pair in pairs {
+        match pair.find('=') {
+            Some(idx) => {
+                let key = pair[..idx].to_string();
+                let val = pair[idx + 1..].to_string();
+                map.insert(key, json!(val));
+            }
+            None => {
+                return Err(format!(
+                    "--set value {:?} is malformed: expected k=v form",
+                    pair
+                ));
+            }
+        }
+    }
+    Ok(map)
+}
+
+fn cmd_edit(argv: &[String], args: &EditArgs, compact: bool) -> i32 {
+    match &args.kind {
+        EditKind::Rename { uri, from, to } => cmd_edit_rename(argv, uri, from, to, compact),
+        EditKind::Body {
+            uri,
+            new,
+            old,
+            append,
+        } => cmd_edit_body(argv, uri, new, old.as_deref(), *append, compact),
+        EditKind::Properties { uri, sets, unsets } => {
+            // Parse k=v pairs before spawning server — usage error exits early.
+            let set_map = match parse_set_pairs(sets) {
+                Ok(m) => m,
+                Err(msg) => {
+                    return print_error(ErrorKind::Usage, 2, msg, json!(null), 2, compact);
+                }
+            };
+            cmd_edit_properties(argv, uri, set_map, unsets, compact)
+        }
+        EditKind::Tags { uri, tags } => cmd_edit_tags(argv, uri, tags, compact),
+        EditKind::Priority { uri, priority } => {
+            cmd_edit_priority(argv, uri, priority.as_deref(), compact)
+        }
+        EditKind::Scheduled { uri, date } => {
+            cmd_edit_scheduled(argv, uri, date.as_deref(), compact)
+        }
+        EditKind::Deadline { uri, date } => cmd_edit_deadline(argv, uri, date.as_deref(), compact),
+        EditKind::LogNote { uri, note } => cmd_edit_log_note(argv, uri, note, compact),
+    }
+}
+
+fn cmd_edit_rename(argv: &[String], uri: &str, from: &str, to: &str, compact: bool) -> i32 {
+    let mut client = match connect(argv, compact) {
+        Ok(c) => c,
+        Err(code) => return code,
+    };
+    let bare = uri::normalize_for_tool(uri);
+    let arguments = json!({
+        "uri": bare,
+        "from": from,
+        "to": to,
+    });
+    match client.tools_call("org-edit-rename", arguments) {
+        Ok(content) => {
+            print_success(extract_result(content), compact);
+            0
+        }
+        Err(e) => handle_mcp_error(e, compact),
+    }
+}
+
+fn cmd_edit_body(
+    argv: &[String],
+    uri: &str,
+    new: &str,
+    old: Option<&str>,
+    append: bool,
+    compact: bool,
+) -> i32 {
+    let mut client = match connect(argv, compact) {
+        Ok(c) => c,
+        Err(code) => return code,
+    };
+    let bare = uri::normalize_for_tool(uri);
+    // NOTE: server param key is `resource_uri` (not `uri`) — PLAN §5.6 §7
+    // NOTE: --new maps to `new_body`, --old maps to `old_body`
+    let mut arguments = json!({
+        "resource_uri": bare,
+        "new_body": new,
+        "append": append,
+    });
+    if let Some(o) = old {
+        arguments["old_body"] = json!(o);
+    }
+    match client.tools_call("org-edit-body", arguments) {
+        Ok(content) => {
+            print_success(extract_result(content), compact);
+            0
+        }
+        Err(e) => handle_mcp_error(e, compact),
+    }
+}
+
+fn cmd_edit_properties(
+    argv: &[String],
+    uri: &str,
+    set_map: serde_json::Map<String, Value>,
+    unsets: &[String],
+    compact: bool,
+) -> i32 {
+    let mut client = match connect(argv, compact) {
+        Ok(c) => c,
+        Err(code) => return code,
+    };
+    let bare = uri::normalize_for_tool(uri);
+    let arguments = json!({
+        "uri": bare,
+        "set": set_map,
+        "unset": unsets,
+    });
+    match client.tools_call("org-edit-properties", arguments) {
+        Ok(content) => {
+            print_success(extract_result(content), compact);
+            0
+        }
+        Err(e) => handle_mcp_error(e, compact),
+    }
+}
+
+fn cmd_edit_tags(argv: &[String], uri: &str, tags: &[String], compact: bool) -> i32 {
+    let mut client = match connect(argv, compact) {
+        Ok(c) => c,
+        Err(code) => return code,
+    };
+    let bare = uri::normalize_for_tool(uri);
+    let arguments = json!({
+        "uri": bare,
+        "tags": tags,
+    });
+    match client.tools_call("org-edit-tags", arguments) {
+        Ok(content) => {
+            print_success(extract_result(content), compact);
+            0
+        }
+        Err(e) => handle_mcp_error(e, compact),
+    }
+}
+
+fn cmd_edit_priority(argv: &[String], uri: &str, priority: Option<&str>, compact: bool) -> i32 {
+    let mut client = match connect(argv, compact) {
+        Ok(c) => c,
+        Err(code) => return code,
+    };
+    let bare = uri::normalize_for_tool(uri);
+    // Send explicit null when no --priority so server distinguishes "clear" from "missing".
+    let priority_val: Value = match priority {
+        Some(p) => json!(p),
+        None => Value::Null,
+    };
+    let arguments = json!({
+        "uri": bare,
+        "priority": priority_val,
+    });
+    match client.tools_call("org-edit-priority", arguments) {
+        Ok(content) => {
+            print_success(extract_result(content), compact);
+            0
+        }
+        Err(e) => handle_mcp_error(e, compact),
+    }
+}
+
+fn cmd_edit_scheduled(argv: &[String], uri: &str, date: Option<&str>, compact: bool) -> i32 {
+    let mut client = match connect(argv, compact) {
+        Ok(c) => c,
+        Err(code) => return code,
+    };
+    let bare = uri::normalize_for_tool(uri);
+    // Send explicit null when no --date so server distinguishes "clear" from "missing".
+    let date_val: Value = match date {
+        Some(d) => json!(d),
+        None => Value::Null,
+    };
+    let arguments = json!({
+        "uri": bare,
+        "date": date_val,
+    });
+    match client.tools_call("org-edit-scheduled", arguments) {
+        Ok(content) => {
+            print_success(extract_result(content), compact);
+            0
+        }
+        Err(e) => handle_mcp_error(e, compact),
+    }
+}
+
+fn cmd_edit_deadline(argv: &[String], uri: &str, date: Option<&str>, compact: bool) -> i32 {
+    let mut client = match connect(argv, compact) {
+        Ok(c) => c,
+        Err(code) => return code,
+    };
+    let bare = uri::normalize_for_tool(uri);
+    // Send explicit null when no --date so server distinguishes "clear" from "missing".
+    let date_val: Value = match date {
+        Some(d) => json!(d),
+        None => Value::Null,
+    };
+    let arguments = json!({
+        "uri": bare,
+        "date": date_val,
+    });
+    match client.tools_call("org-edit-deadline", arguments) {
+        Ok(content) => {
+            print_success(extract_result(content), compact);
+            0
+        }
+        Err(e) => handle_mcp_error(e, compact),
+    }
+}
+
+fn cmd_edit_log_note(argv: &[String], uri: &str, note: &str, compact: bool) -> i32 {
+    let mut client = match connect(argv, compact) {
+        Ok(c) => c,
+        Err(code) => return code,
+    };
+    let bare = uri::normalize_for_tool(uri);
+    let arguments = json!({
+        "uri": bare,
+        "note": note,
+    });
+    match client.tools_call("org-edit-log-note", arguments) {
+        Ok(content) => {
+            print_success(extract_result(content), compact);
+            0
+        }
+        Err(e) => handle_mcp_error(e, compact),
+    }
+}
+
+fn cmd_clock(argv: &[String], args: &ClockArgs, compact: bool) -> i32 {
+    match &args.kind {
+        ClockKind::Status => cmd_clock_status(argv, compact),
+        ClockKind::In { uri, at, resolve } => {
+            cmd_clock_in(argv, uri, at.as_deref(), *resolve, compact)
+        }
+        ClockKind::Out { uri, at } => cmd_clock_out(argv, uri.as_deref(), at.as_deref(), compact),
+        ClockKind::Add { uri, start, end } => cmd_clock_add(argv, uri, start, end, compact),
+        ClockKind::Delete { uri, at } => cmd_clock_delete(argv, uri, at, compact),
+        ClockKind::Dangling => cmd_clock_dangling(argv, compact),
+    }
+}
+
+fn cmd_clock_status(argv: &[String], compact: bool) -> i32 {
+    let mut client = match connect(argv, compact) {
+        Ok(c) => c,
+        Err(code) => return code,
+    };
+    match client.tools_call("org-clock-status", json!({})) {
+        Ok(content) => {
+            print_success(extract_result(content), compact);
+            0
+        }
+        Err(e) => handle_mcp_error(e, compact),
+    }
+}
+
+fn cmd_clock_in(argv: &[String], uri: &str, at: Option<&str>, resolve: bool, compact: bool) -> i32 {
+    let mut client = match connect(argv, compact) {
+        Ok(c) => c,
+        Err(code) => return code,
+    };
+    let bare = uri::normalize_for_tool(uri);
+
+    // Build arguments: uri and resolve are always sent.
+    // at is omitted when None.
+    // CRITICAL: resolve is sent as a JSON STRING "true"/"false", NOT a JSON boolean.
+    // The org-mcp server expects a string-shaped value here — PLAN §5.6 §7 /
+    // contract.rs ServerValue::BoolAsString. Sending a native bool would silently
+    // break server-side resolution logic.
+    let resolve_str = if resolve { "true" } else { "false" };
+    let mut arguments = json!({
+        "uri": bare,
+        "resolve": resolve_str,
+    });
+    if let Some(ts) = at {
+        arguments["at"] = json!(ts);
+    }
+
+    match client.tools_call("org-clock-in", arguments) {
+        Ok(content) => {
+            print_success(extract_result(content), compact);
+            0
+        }
+        Err(e) => handle_mcp_error(e, compact),
+    }
+}
+
+fn cmd_clock_out(argv: &[String], uri: Option<&str>, at: Option<&str>, compact: bool) -> i32 {
+    let mut client = match connect(argv, compact) {
+        Ok(c) => c,
+        Err(code) => return code,
+    };
+
+    // Both uri and at are optional — omit keys entirely when None.
+    // Omitting uri tells the server to use the currently active clock.
+    let mut arguments = json!({});
+    if let Some(u) = uri {
+        let bare = uri::normalize_for_tool(u);
+        arguments["uri"] = json!(bare);
+    }
+    if let Some(ts) = at {
+        arguments["at"] = json!(ts);
+    }
+
+    match client.tools_call("org-clock-out", arguments) {
+        Ok(content) => {
+            print_success(extract_result(content), compact);
+            0
+        }
+        Err(e) => handle_mcp_error(e, compact),
+    }
+}
+
+fn cmd_clock_add(argv: &[String], uri: &str, start: &str, end: &str, compact: bool) -> i32 {
+    let mut client = match connect(argv, compact) {
+        Ok(c) => c,
+        Err(code) => return code,
+    };
+    let bare = uri::normalize_for_tool(uri);
+    let arguments = json!({
+        "uri": bare,
+        "start": start,
+        "end": end,
+    });
+    match client.tools_call("org-clock-add", arguments) {
+        Ok(content) => {
+            print_success(extract_result(content), compact);
+            0
+        }
+        Err(e) => handle_mcp_error(e, compact),
+    }
+}
+
+fn cmd_clock_delete(argv: &[String], uri: &str, at: &str, compact: bool) -> i32 {
+    let mut client = match connect(argv, compact) {
+        Ok(c) => c,
+        Err(code) => return code,
+    };
+    let bare = uri::normalize_for_tool(uri);
+    let arguments = json!({
+        "uri": bare,
+        "at": at,
+    });
+    match client.tools_call("org-clock-delete", arguments) {
+        Ok(content) => {
+            print_success(extract_result(content), compact);
+            0
+        }
+        Err(e) => handle_mcp_error(e, compact),
+    }
+}
+
+fn cmd_clock_dangling(argv: &[String], compact: bool) -> i32 {
+    let mut client = match connect(argv, compact) {
+        Ok(c) => c,
+        Err(code) => return code,
+    };
+    match client.tools_call("org-clock-dangling", json!({})) {
+        Ok(content) => {
+            print_success(extract_result(content), compact);
+            0
+        }
+        Err(e) => handle_mcp_error(e, compact),
+    }
+}
+
+fn cmd_config(argv: &[String], args: &ConfigArgs, compact: bool) -> i32 {
+    match &args.kind {
+        ConfigKind::Todo => cmd_config_call(argv, "org-config-todo", compact),
+        ConfigKind::Tags => cmd_config_call(argv, "org-config-tags", compact),
+        ConfigKind::TagCandidates => cmd_config_call(argv, "org-config-tag-candidates", compact),
+        ConfigKind::Priority => cmd_config_call(argv, "org-config-priority", compact),
+        ConfigKind::Files => cmd_config_call(argv, "org-config-files", compact),
+        ConfigKind::Clock => cmd_config_call(argv, "org-config-clock", compact),
+    }
+}
+
+fn cmd_config_call(argv: &[String], tool_name: &str, compact: bool) -> i32 {
+    let mut client = match connect(argv, compact) {
+        Ok(c) => c,
+        Err(code) => return code,
+    };
+    match client.tools_call(tool_name, json!({})) {
+        Ok(content) => {
+            print_success(extract_result(content), compact);
             0
         }
         Err(e) => handle_mcp_error(e, compact),

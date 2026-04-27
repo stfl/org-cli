@@ -69,6 +69,15 @@ pub enum Commands {
         cmd: ToolsCmd,
     },
 
+    /// Edit org node attributes (headline, body, properties, tags, priority, dates, log).
+    Edit(EditArgs),
+
+    /// Clock operations (status, in, out, add, delete, dangling).
+    Clock(ClockArgs),
+
+    /// Introspect org-mcp configuration (TODO states, tags, priority, files, clock).
+    Config(ConfigArgs),
+
     /// Emit machine-readable schema metadata for CLI commands.
     ///
     /// With no arguments, returns metadata for ALL commands.
@@ -77,6 +86,31 @@ pub enum Commands {
     ///
     /// This is a local introspection command — no --server needed.
     Schema(SchemaArgs),
+}
+
+/// Arguments for the `config` subcommand.
+#[derive(Debug, clap::Args)]
+pub struct ConfigArgs {
+    #[command(subcommand)]
+    pub kind: ConfigKind,
+}
+
+/// The specific config variant.
+#[derive(Debug, clap::Subcommand)]
+pub enum ConfigKind {
+    /// Get configured TODO keyword sequences.
+    Todo,
+    /// Get configured tags.
+    Tags,
+    /// Get tag candidates (tags with usage counts).
+    #[command(name = "tag-candidates")]
+    TagCandidates,
+    /// Get priority configuration.
+    Priority,
+    /// Get configured org agenda files.
+    Files,
+    /// Get clock configuration.
+    Clock,
 }
 
 /// Arguments for the `query` subcommand.
@@ -167,6 +201,162 @@ pub enum TodoKind {
         #[arg(long = "after")]
         after: Option<String>,
     },
+}
+
+/// Arguments for the `edit` subcommand.
+#[derive(Debug, clap::Args)]
+pub struct EditArgs {
+    #[command(subcommand)]
+    pub kind: EditKind,
+}
+
+/// The specific edit variant.
+#[derive(Debug, clap::Subcommand)]
+pub enum EditKind {
+    /// Rename a node headline.
+    Rename {
+        /// Node URI or identifier. Accepts both bare and org:// form.
+        uri: String,
+        /// Expected current headline (optimistic concurrency guard).
+        #[arg(long)]
+        from: String,
+        /// New headline text.
+        #[arg(long)]
+        to: String,
+    },
+
+    /// Edit the body text of a node.
+    Body {
+        /// Node URI (sent to server as resource_uri per PLAN §5.6 §7).
+        uri: String,
+        /// New body text.
+        #[arg(long = "new")]
+        new: String,
+        /// Expected current body (optimistic concurrency guard).
+        #[arg(long = "old")]
+        old: Option<String>,
+        /// Append to existing body instead of replacing.
+        #[arg(long)]
+        append: bool,
+    },
+
+    /// Edit node properties (set and/or unset key-value pairs).
+    Properties {
+        /// Node URI or identifier. Accepts both bare and org:// form.
+        uri: String,
+        /// Property to set in k=v form (repeatable).
+        #[arg(long = "set")]
+        sets: Vec<String>,
+        /// Property key to remove (repeatable).
+        #[arg(long = "unset")]
+        unsets: Vec<String>,
+    },
+
+    /// Set tags on a node (replaces existing tags; omit --tag to clear all).
+    Tags {
+        /// Node URI or identifier. Accepts both bare and org:// form.
+        uri: String,
+        /// Tag to set (repeatable); omit to clear all tags.
+        #[arg(long = "tag")]
+        tags: Vec<String>,
+    },
+
+    /// Set the priority of a node (omit --priority to clear).
+    Priority {
+        /// Node URI or identifier. Accepts both bare and org:// form.
+        uri: String,
+        /// Priority letter: A, B, or C. Omit to clear priority.
+        #[arg(long)]
+        priority: Option<String>,
+    },
+
+    /// Set or clear the SCHEDULED date of a node.
+    Scheduled {
+        /// Node URI or identifier. Accepts both bare and org:// form.
+        uri: String,
+        /// Scheduled date in YYYY-MM-DD or YYYY-MM-DD HH:MM format. Omit to clear.
+        #[arg(long)]
+        date: Option<String>,
+    },
+
+    /// Set or clear the DEADLINE date of a node.
+    Deadline {
+        /// Node URI or identifier. Accepts both bare and org:// form.
+        uri: String,
+        /// Deadline date in YYYY-MM-DD or YYYY-MM-DD HH:MM format. Omit to clear.
+        #[arg(long)]
+        date: Option<String>,
+    },
+
+    /// Add a logbook note to a node.
+    #[command(name = "log-note")]
+    LogNote {
+        /// Node URI or identifier. Accepts both bare and org:// form.
+        uri: String,
+        /// Note text to add to the logbook.
+        #[arg(long)]
+        note: String,
+    },
+}
+
+/// Arguments for the `clock` subcommand.
+#[derive(Debug, clap::Args)]
+pub struct ClockArgs {
+    #[command(subcommand)]
+    pub kind: ClockKind,
+}
+
+/// The specific clock variant.
+#[derive(Debug, clap::Subcommand)]
+pub enum ClockKind {
+    /// Get the current clock status.
+    Status,
+
+    /// Clock in to a node.
+    In {
+        /// Node URI or identifier. Accepts both bare and org:// form.
+        uri: String,
+        /// Clock-in timestamp (ISO 8601); defaults to now.
+        #[arg(long)]
+        at: Option<String>,
+        /// Resolve dangling clocks before clocking in.
+        /// NOTE: sent to server as string "true"/"false", not JSON bool — PLAN §5.6 §7.
+        #[arg(long)]
+        resolve: bool,
+    },
+
+    /// Clock out of the active clock.
+    Out {
+        /// Node URI (optional; omit to clock out current active clock).
+        uri: Option<String>,
+        /// Clock-out timestamp (ISO 8601); defaults to now.
+        #[arg(long)]
+        at: Option<String>,
+    },
+
+    /// Add a clock entry to a node.
+    Add {
+        /// Node URI or identifier. Accepts both bare and org:// form.
+        uri: String,
+        /// Clock entry start timestamp (ISO 8601).
+        #[arg(long)]
+        start: String,
+        /// Clock entry end timestamp (ISO 8601).
+        #[arg(long)]
+        end: String,
+    },
+
+    /// Delete a clock entry from a node.
+    Delete {
+        /// Node URI or identifier. Accepts both bare and org:// form.
+        uri: String,
+        /// Timestamp identifying the clock entry to delete (ISO 8601).
+        #[arg(long)]
+        at: String,
+    },
+
+    /// List dangling (unclosed) clock entries.
+    Dangling,
 }
 
 /// Arguments for the `schema` subcommand.
