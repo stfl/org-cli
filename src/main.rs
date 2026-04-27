@@ -833,11 +833,17 @@ fn cmd_config_call(argv: &[String], tool_name: &str, compact: bool) -> i32 {
 
 /// Extract a usable result value from an MCP content array.
 ///
-/// MCP tool responses contain a `content` array of typed items. For the
-/// tools/call escape hatch we return a single result value by taking the
-/// first text item and attempting to parse it as JSON (for structured tools),
-/// or falling back to a `{"text": ...}` wrapper (for plain-text tools like
-/// org-read-headline). If the content is not an array, return it as-is.
+/// Walks the content array and maps each item by its `type` field:
+///   "text"              → JSON-parse the text value; if non-JSON, wrap as {text: <string>}
+///   "image"             → {type:"image", mime_type:<mimeType>, data:<base64>}
+///   "resource" /
+///   "embedded_resource" → {type:"resource", uri, mime_type, text (if present)}
+///   "resource_link"     → {type:"resource_link", uri, name, mime_type, description} (snake_cased)
+///   unknown             → {type:<type>, raw:<original item>}
+///
+/// Single-item arrays return a scalar (preserves existing test shapes).
+/// Multi-item arrays return a JSON array.
+/// Non-array content is returned as-is (legacy defensive path).
 fn extract_result(content: Value) -> Value {
     let items = match content.as_array() {
         Some(a) => a,
@@ -848,16 +854,72 @@ fn extract_result(content: Value) -> Value {
         return json!(null);
     }
 
-    // Take the first text item
-    if let Some(text) = items[0].get("text").and_then(Value::as_str) {
-        // Try to parse as JSON first
-        if let Ok(parsed) = serde_json::from_str::<Value>(text) {
-            return parsed;
-        }
-        // Plain text — wrap as {text: ...}
-        return json!({ "text": text });
-    }
+    let mapped: Vec<Value> = items.iter().map(map_content_item).collect();
 
-    // No text field — return the raw item
-    items[0].clone()
+    if mapped.len() == 1 {
+        mapped.into_iter().next().unwrap()
+    } else {
+        Value::Array(mapped)
+    }
+}
+
+fn map_content_item(item: &Value) -> Value {
+    let type_str = item.get("type").and_then(Value::as_str).unwrap_or("");
+
+    match type_str {
+        "text" => {
+            if let Some(text) = item.get("text").and_then(Value::as_str) {
+                if let Ok(parsed) = serde_json::from_str::<Value>(text) {
+                    return parsed;
+                }
+                return json!({ "text": text });
+            }
+            json!({ "type": "text", "raw": item })
+        }
+        "image" => {
+            let mime_type = item
+                .get("mimeType")
+                .and_then(Value::as_str)
+                .unwrap_or("");
+            let data = item.get("data").and_then(Value::as_str).unwrap_or("");
+            json!({
+                "type": "image",
+                "mime_type": mime_type,
+                "data": data
+            })
+        }
+        "resource" | "embedded_resource" => {
+            let res = item.get("resource").unwrap_or(&Value::Null);
+            let uri = res.get("uri").and_then(Value::as_str).unwrap_or("");
+            let mime_type = res.get("mimeType").and_then(Value::as_str).unwrap_or("");
+            let mut out = json!({
+                "type": "resource",
+                "uri": uri,
+                "mime_type": mime_type
+            });
+            if let Some(text) = res.get("text").and_then(Value::as_str) {
+                out["text"] = json!(text);
+            }
+            out
+        }
+        "resource_link" => {
+            let uri = item.get("uri").and_then(Value::as_str).unwrap_or("");
+            let name = item.get("name").and_then(Value::as_str).unwrap_or("");
+            let mime_type = item.get("mimeType").and_then(Value::as_str).unwrap_or("");
+            let description = item
+                .get("description")
+                .and_then(Value::as_str)
+                .unwrap_or("");
+            json!({
+                "type": "resource_link",
+                "uri": uri,
+                "name": name,
+                "mime_type": mime_type,
+                "description": description
+            })
+        }
+        _ => {
+            json!({ "type": type_str, "raw": item })
+        }
+    }
 }
