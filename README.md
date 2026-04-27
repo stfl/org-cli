@@ -33,6 +33,19 @@ org --server emacs-mcp-stdio.sh read org://<uuid>
 org schema                                           # local; no server needed
 ```
 
+For multi-arg launchers, the recommended form is `--` followed by the trailing
+launcher args, then the subcommand:
+
+```
+org --server emacs-mcp-stdio.sh -- --socket /tmp/mcp.sock tools list
+```
+
+The legacy repeatable `--server-arg` form is still accepted:
+
+```
+org --server emacs-mcp-stdio.sh --server-arg --socket --server-arg /tmp/mcp.sock tools list
+```
+
 ## JSON envelope
 
 Success:

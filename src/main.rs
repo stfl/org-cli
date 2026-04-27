@@ -12,11 +12,28 @@ use cli::{
 };
 use mcp::client::Client;
 use mcp::error::McpError;
+use org_cli::argv::split_sentinel;
 use org_cli::contract;
 use org_cli::output::{ErrorKind, print_error, print_success};
 
+const SUBCOMMAND_NAMES: &[&str] = &[
+    "read",
+    "read-headline",
+    "outline",
+    "query",
+    "todo",
+    "edit",
+    "clock",
+    "config",
+    "schema",
+    "tools",
+];
+
 fn main() {
-    let cli = Cli::parse();
+    let raw: Vec<String> = std::env::args().collect();
+    let (cleaned, extra) = split_sentinel(raw, SUBCOMMAND_NAMES);
+    let mut cli = Cli::parse_from(cleaned);
+    cli.server_args.extend(extra);
     let compact = cli.compact;
 
     let code = run(cli, compact);

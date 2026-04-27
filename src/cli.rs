@@ -26,7 +26,9 @@ pub struct Cli {
     pub server: Option<String>,
 
     /// Additional arguments to pass to the server executable (repeatable).
-    #[arg(long = "server-arg", global = true, value_name = "ARG")]
+    /// `allow_hyphen_values` lets values like `--socket` be passed without an
+    /// equals sign — `--server-arg --socket` works, matching the doc example.
+    #[arg(long = "server-arg", global = true, value_name = "ARG", allow_hyphen_values = true)]
     pub server_args: Vec<String>,
 
     /// Emit compact single-line JSON instead of pretty-printed output.
