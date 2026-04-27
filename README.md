@@ -2,7 +2,7 @@
 
 Synchronous Rust CLI for the `org-mcp` Emacs MCP server. Designed for LLM agents and shell pipelines: deterministic JSON-first stdout, structured stderr, meaningful exit codes.
 
-> v1 status: machine interface complete. No human-pretty rendering — see PLAN §2.
+> v1 status: machine interface complete. No human-pretty rendering. The authoritative contract lives in `src/contract.rs` (CLI side) and `../org-mcp/org-mcp.el` (server side).
 
 ## Install
 
@@ -95,7 +95,7 @@ Error:
 | `tools list` | Raw tools/list from the server |
 | `tools call <name> --args <json>` | Raw tools/call escape hatch |
 
-See PLAN.md §6 for the canonical command list and §7 for the parameter contract table.
+See `src/contract.rs` for the codified command-to-tool mapping and `../org-mcp/org-mcp.el` (`mcp-server-lib-register-tool` blocks) for the authoritative server-side contract.
 
 ## Discoverability
 
@@ -161,4 +161,6 @@ GitHub Actions workflow at `.github/workflows/ci.yml` runs `nix flake check` and
 
 ## See also
 
-PLAN.md — the v1 contract (read this before modifying anything).
+- `src/contract.rs` — codified CLI command → tool/param mapping
+- `../org-mcp/org-mcp.el` — authoritative server-side tool registrations
+- `bd ready` / `bd list` — open work for this CLI
