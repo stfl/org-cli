@@ -1,0 +1,214 @@
+/// CLI argument definitions using clap derive.
+///
+/// # Server flag
+///
+/// `--server <cmd>` takes the executable path. Additional arguments to the
+/// server can be passed via `--server-arg <arg>` (repeatable). This is cleaner
+/// than a single string that would require shell-splitting, avoids quoting
+/// ambiguities, and is explicit about what is the binary vs. what is an arg.
+///
+/// Example:
+///   org --server emacs-mcp-stdio.sh --server-arg --socket --server-arg /tmp/mcp.sock tools list
+///
+/// # Discovery (TODO Phase 2)
+///
+/// When `--server` is not provided, the CLI will search PATH for
+/// `emacs-mcp-stdio.sh`. This is not yet implemented.
+use clap::{Parser, Subcommand};
+
+#[derive(Debug, Parser)]
+#[command(name = "org", about = "Agent-first CLI for org-mcp")]
+pub struct Cli {
+    /// Path to the MCP server executable (e.g. emacs-mcp-stdio.sh).
+    /// If omitted, PATH is searched for emacs-mcp-stdio.sh (not yet implemented).
+    #[arg(long, global = true)]
+    pub server: Option<String>,
+
+    /// Additional arguments to pass to the server executable (repeatable).
+    #[arg(long = "server-arg", global = true, value_name = "ARG")]
+    pub server_args: Vec<String>,
+
+    /// Emit compact single-line JSON instead of pretty-printed output.
+    #[arg(long, global = true)]
+    pub compact: bool,
+
+    #[command(subcommand)]
+    pub command: Commands,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum Commands {
+    /// Read an org node and its children as JSON.
+    Read {
+        /// Node URI, UUID, file path, or file#headline. Accepts both bare and org:// form.
+        uri: String,
+    },
+
+    /// Read an org node as plain text (wrapped as JSON).
+    #[command(name = "read-headline")]
+    ReadHeadline {
+        /// Node URI or identifier. Accepts both bare and org:// form.
+        uri: String,
+    },
+
+    /// List the outline of an org file.
+    Outline {
+        /// Absolute path to an org file. Must NOT be an org:// URI.
+        file: String,
+    },
+
+    /// Query org files with org-ql or GTD tools.
+    Query(QueryArgs),
+
+    /// Manage TODO states and create new TODO nodes.
+    Todo(TodoArgs),
+
+    /// Low-level MCP tool access.
+    Tools {
+        #[command(subcommand)]
+        cmd: ToolsCmd,
+    },
+
+    /// Emit machine-readable schema metadata for CLI commands.
+    ///
+    /// With no arguments, returns metadata for ALL commands.
+    /// With a command path (e.g. `org schema edit body`), returns metadata
+    /// for that single command.
+    ///
+    /// This is a local introspection command — no --server needed.
+    Schema(SchemaArgs),
+}
+
+/// Arguments for the `query` subcommand.
+///
+/// Note: `org query run "<expr>"` is the explicit form. PLAN §6 shows
+/// `org query <ql-expr>` directly (without `run`), but clap-derive cannot
+/// express a bare positional that also has named subcommands without using
+/// `#[command(external_subcommand)]`. Using an explicit `run` subcommand is
+/// the simplest faithful path for now. A follow-up issue should track the
+/// surface deviation.
+#[derive(Debug, clap::Args)]
+pub struct QueryArgs {
+    #[command(subcommand)]
+    pub kind: QueryKind,
+}
+
+/// The specific query variant.
+#[derive(Debug, clap::Subcommand)]
+pub enum QueryKind {
+    /// Run an arbitrary org-ql expression.
+    Run {
+        /// org-ql query expression (e.g. `(todo "TODO")`).
+        ql_expr: String,
+        /// Org files to search (repeatable); defaults to agenda files.
+        #[arg(long = "files", value_name = "FILE")]
+        files: Vec<String>,
+    },
+
+    /// Query the GTD inbox (requires GTD configuration in org-mcp).
+    Inbox,
+
+    /// Query GTD next actions (requires GTD configuration in org-mcp).
+    Next {
+        /// Filter results by tag.
+        #[arg(long)]
+        tag: Option<String>,
+    },
+
+    /// Query the GTD backlog (requires GTD configuration in org-mcp).
+    Backlog {
+        /// Filter results by tag.
+        #[arg(long)]
+        tag: Option<String>,
+    },
+}
+
+/// Arguments for the `todo` subcommand.
+#[derive(Debug, clap::Args)]
+pub struct TodoArgs {
+    #[command(subcommand)]
+    pub kind: TodoKind,
+}
+
+/// The specific todo variant.
+#[derive(Debug, clap::Subcommand)]
+pub enum TodoKind {
+    /// Update the TODO state of a node.
+    State {
+        /// Node URI or identifier. Accepts both bare and org:// form.
+        uri: String,
+        /// New TODO state keyword (e.g. TODO, DONE, NEXT).
+        new_state: String,
+        /// Required current state (optimistic concurrency guard).
+        #[arg(long = "from")]
+        from: Option<String>,
+        /// Logbook note to attach with the state change.
+        #[arg(long)]
+        note: Option<String>,
+    },
+    /// Add a new TODO node.
+    Add {
+        /// Parent node URI. Accepts both bare and org:// form.
+        #[arg(long)]
+        parent: String,
+        /// Headline title for the new node.
+        #[arg(long)]
+        title: String,
+        /// Initial TODO state keyword (e.g. TODO, NEXT).
+        #[arg(long)]
+        state: String,
+        /// Body text for the new node.
+        #[arg(long)]
+        body: Option<String>,
+        /// Tag to attach (repeatable).
+        #[arg(long = "tag")]
+        tags: Vec<String>,
+        /// Sibling node after which to insert (bare ID or org:// URI).
+        #[arg(long = "after")]
+        after: Option<String>,
+    },
+}
+
+/// Arguments for the `schema` subcommand.
+#[derive(Debug, clap::Args)]
+pub struct SchemaArgs {
+    /// Command path segments to look up (e.g. `edit body`).
+    /// Omit to return all commands.
+    #[arg(value_name = "PATH")]
+    pub path: Vec<String>,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum ToolsCmd {
+    /// List all tools exposed by the MCP server.
+    List,
+
+    /// Call a named MCP tool with optional JSON arguments.
+    Call {
+        /// Name of the tool to call.
+        name: String,
+
+        /// JSON object of arguments to pass to the tool.
+        /// Defaults to `{}` if omitted.
+        #[arg(long, value_name = "JSON")]
+        args: Option<String>,
+    },
+}
+
+impl Cli {
+    /// Build the argv list for spawning the server process.
+    /// Returns an error string if no server is configured.
+    pub fn server_argv(&self) -> Result<Vec<String>, String> {
+        match &self.server {
+            Some(cmd) => {
+                let mut argv = vec![cmd.clone()];
+                argv.extend(self.server_args.clone());
+                Ok(argv)
+            }
+            None => {
+                // TODO Phase 2: search PATH for emacs-mcp-stdio.sh
+                Err("no --server specified; automatic discovery not yet implemented".to_string())
+            }
+        }
+    }
+}
