@@ -12,6 +12,7 @@
 ///   MOCK_REQUEST_LOG=<path>          — file path for request log (used with MOCK_RECORD_REQUESTS)
 ///   MOCK_DIE_AFTER_HANDSHAKE=1       — close stdout immediately after sending the initialize response
 ///   MOCK_HANG_MS=<n>                 — sleep n ms before sending each response (covers initialize + tools/list + tools/call); used by transport-timeout tests
+///   MOCK_RESPONSE_KIND=text|image|resource|mixed — substitute the content array in the next tools/call response
 use std::io::{self, BufRead, Write};
 
 use serde::{Deserialize, Serialize};
@@ -42,6 +43,10 @@ struct RpcError {
     message: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     data: Option<Value>,
+}
+
+fn mock_response_kind() -> Option<String> {
+    std::env::var("MOCK_RESPONSE_KIND").ok()
 }
 
 fn tool_error_name() -> Option<String> {
@@ -826,6 +831,39 @@ fn handle_tools_call(id: Value, params: Option<Value>) -> Response {
                 })).unwrap()
             }])
         }
+    };
+
+    // If MOCK_RESPONSE_KIND is set, substitute the content array regardless of tool name.
+    let content = if let Some(kind) = mock_response_kind() {
+        match kind.as_str() {
+            "image" => json!([{
+                "type": "image",
+                "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+                "mimeType": "image/png"
+            }]),
+            "resource" => json!([{
+                "type": "resource",
+                "resource": {
+                    "uri": "org://res-xyz",
+                    "mimeType": "text/plain",
+                    "text": "hello"
+                }
+            }]),
+            "mixed" => json!([
+                {
+                    "type": "text",
+                    "text": "{\"key\":\"value\"}"
+                },
+                {
+                    "type": "image",
+                    "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+                    "mimeType": "image/png"
+                }
+            ]),
+            _ => content,
+        }
+    } else {
+        content
     };
 
     Response {
