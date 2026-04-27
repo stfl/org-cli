@@ -1,0 +1,7 @@
+{
+  "tool_name": "Bash",
+  "tool_input_preview": "{\"command\":\"git worktree remove /home/stefan/work/org-cli/.claude/worktrees/agent-a3dc047cdb1c0d7ef -f -f 2>&1 ; git branch -D worktree-agent-a3dc047cdb1c0d7ef 2>&1 ; bd show org-cli-l1h ; echo \\\"---\\...",
+  "error": "Exit code 1\nfatal: Unable to read current working directory: No such file or directory\nshell-init: error retrieving current directory: getcwd: cannot access parent directories: No such file or directory\nError: no beads database found\nHint: run 'bd where' to inspect the resolved workspace, or 'bd init' to create a new database\n      or set BEADS_DIR to point to your .beads directory\n---\nshell-init: error retrieving current directory: getcwd: cannot access parent directories: No such file or direc...",
+  "timestamp": "2026-04-27T12:02:50.403Z",
+  "retry_count": 1
+}

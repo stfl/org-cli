@@ -4,16 +4,28 @@
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     flake-utils.url = "github:numtide/flake-utils";
+    # Pin the toolchain used by `nix build` via fenix so CI / package builds
+    # are reproducible across nixpkgs revisions. The devShell intentionally
+    # does NOT install rust — developers bring their own (rustup, system).
+    fenix = {
+      url = "github:nix-community/fenix";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
-  outputs = { self, nixpkgs, flake-utils }:
+  outputs = { self, nixpkgs, flake-utils, fenix }:
     flake-utils.lib.eachDefaultSystem (system:
       let
         pkgs = nixpkgs.legacyPackages.${system};
         cargoToml = builtins.fromTOML (builtins.readFile ./Cargo.toml);
+        toolchain = fenix.packages.${system}.stable.toolchain;
+        rustPlatform = pkgs.makeRustPlatform {
+          cargo = toolchain;
+          rustc = toolchain;
+        };
       in
       {
-        packages.default = pkgs.rustPlatform.buildRustPackage {
+        packages.default = rustPlatform.buildRustPackage {
           pname = cargoToml.package.name;
           version = cargoToml.package.version;
 
@@ -54,13 +66,11 @@
           program = "${self.packages.${system}.default}/bin/org";
         };
 
+        # Dev shell intentionally has NO rust toolchain — bring your own
+        # (rustup, system rust, direnv layout). Only project-specific tooling
+        # like `just` lives here.
         devShells.default = pkgs.mkShell {
           packages = with pkgs; [
-            cargo
-            rustc
-            rustfmt
-            clippy
-            rust-analyzer
             just
           ];
         };
