@@ -18,7 +18,11 @@
       let
         pkgs = nixpkgs.legacyPackages.${system};
         cargoToml = builtins.fromTOML (builtins.readFile ./Cargo.toml);
-        toolchain = fenix.packages.${system}.stable.toolchain;
+        # Use minimal toolchain (cargo + rustc + rust-std only). The full
+        # `stable.toolchain` pulls preview components (rust-analyzer-preview,
+        # llvm-bitcode-linker-preview, llvm-tools-preview) that aren't needed
+        # for `buildRustPackage` and have caused empty-hash failures in CI.
+        toolchain = fenix.packages.${system}.minimal.toolchain;
         rustPlatform = pkgs.makeRustPlatform {
           cargo = toolchain;
           rustc = toolchain;
