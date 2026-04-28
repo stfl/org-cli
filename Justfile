@@ -40,3 +40,7 @@ live:
 # Build the self-contained live-test Emacs env (Emacs + org-mcp + emacs-mcp-stdio.sh)
 live-env:
     nix build .#live-test-env
+
+# Run the read-only live suite end-to-end against an isolated daemon from live-test-env
+live-env-test *ARGS:
+    ./scripts/run-live-tests.sh {{ARGS}}

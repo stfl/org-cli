@@ -192,6 +192,23 @@ PATH=result/bin:$PATH HOME=$TMPDIR \
 
 Refresh the pinned `org-mcp` / `agile-gtd` revisions with `nix/update-pins.sh`.
 
+#### One-shot runner: `just live-env-test`
+
+`scripts/run-live-tests.sh` is the canonical entrypoint that wires the read-only
+live suite to `.#live-test-env`. It builds the env on demand, copies
+`tests/live-fixtures/sample.org` into a fresh tmpdir, spawns an isolated daemon
+under `HOME=$TMPDIR`, runs the live suite against it, and tears the daemon and
+tmpdir down on exit (also on `INT` / `TERM`).
+
+```sh
+just live-env-test                  # default: read-only suite
+just live-env-test live_handshake   # forward extra args to cargo test
+```
+
+Re-runnable from a clean checkout: no leftover daemon, no leftover tmpdir, no
+shared org file. Mutating (`#[ignore]`) tests are out of scope for this runner
+and are tracked separately.
+
 ## Development
 
 A `Justfile` provides curated shortcuts — run `just --list` to see all targets.

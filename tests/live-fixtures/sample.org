@@ -1,0 +1,22 @@
+#+TODO: TODO NEXT | DONE
+
+* TODO Inbox capture                                                  :inbox:
+:PROPERTIES:
+:ID:       11111111-1111-1111-1111-111111111111
+:END:
+
+Captured to the inbox; should match the GTD inbox query.
+
+* NEXT Next action item
+:PROPERTIES:
+:ID:       22222222-2222-2222-2222-222222222222
+:END:
+
+A NEXT action; should match the GTD next query.
+
+* TODO Backlog item
+:PROPERTIES:
+:ID:       33333333-3333-3333-3333-333333333333
+:END:
+
+Plain TODO without :inbox: tag; should match the GTD backlog query.
