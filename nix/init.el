@@ -19,10 +19,6 @@
       ring-bell-function 'ignore)
 
 (require 'org)
-(require 'org-habit)
-(require 'agile-gtd)
-(require 'org-edna)
-(org-edna-mode 1)
 
 (require 'mcp-server-lib)
 ;; `mcp-server-lib-start' lives in mcp-server-lib-commands.el; in a daemon
@@ -34,18 +30,11 @@
 (unless mcp-server-lib--running
   (mcp-server-lib-start))
 
-;; Wire org-mcp's query API to agile-gtd helpers, mirroring the production
-;; setup so live tests exercise the same code path.
-(setq org-mcp-ql-extra-properties
-      '((parent-priority . agile-gtd--direct-parent-priority)
-        (rank            . agile-gtd--item-rank))
-      org-mcp-query-inbox-fn   #'agile-gtd-agenda-query-inbox
-      org-mcp-query-backlog-fn #'agile-gtd-agenda-query-backlog
-      org-mcp-query-next-fn    #'agile-gtd-agenda-query-next-actions
-      org-mcp-query-sort-fn    #'agile-gtd--item-rank<)
-
 ;; Pull org-directory and the allow-list from the environment so the launcher
-;; / rstest fixture can drive everything from outside Emacs.
+;; / rstest fixture can drive everything from outside Emacs. Per-test fixtures
+;; that need GTD query semantics (org-mcp-query-inbox-fn etc.) load their own
+;; overlay file via -l after this init.el — agile-gtd is intentionally NOT a
+;; dependency of the base env.
 (let ((dir (getenv "ORG_LIVE_DIR")))
   (when (and dir (not (string-empty-p dir)))
     (setq org-directory (expand-file-name dir))))

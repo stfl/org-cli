@@ -3,8 +3,8 @@
 # Context:
 #   - The CLI talks to org-mcp over stdio. The contract parity test consumes
 #     ../org-mcp/org-mcp.el from a sibling checkout (logs & passes if absent).
-#   - The flake's `live-test-env` output pins its own copies of org-mcp and
-#     agile-gtd; refresh those with `just update-pins` (or nix/update-pins.sh).
+#   - The flake's `live-test-env` output pins its own copy of org-mcp;
+#     refresh it with `just update-pins` (or nix/update-pins.sh).
 
 # Print available targets
 default:
@@ -22,7 +22,7 @@ update-cargo:
 update-flake:
     nix flake update
 
-# Refresh repo-local Elisp pins (org-mcp + agile-gtd) used by live-test-env
+# Refresh repo-local Elisp pins (org-mcp) used by live-test-env
 update-pins:
     ./nix/update-pins.sh
 

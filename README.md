@@ -155,9 +155,10 @@ Optional env vars:
 ### Self-contained Nix env for live tests
 
 For CI and any host without a configured Emacs daemon, the flake exposes a
-repo-local environment that bundles a pinned Emacs + `org-mcp` + `agile-gtd` +
+repo-local environment that bundles a pinned Emacs + `org-mcp` + `org-ql` +
 `emacs-mcp-stdio.sh`. It does **not** read user dotfiles, system Emacs, or a
-pre-running daemon.
+pre-running daemon. Tests that need extra Elisp (e.g. `agile-gtd` for the GTD
+query bindings) load an overlay file via `emacs -l <overlay.el>`.
 
 ```sh
 nix build .#live-test-env

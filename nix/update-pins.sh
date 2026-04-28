@@ -5,7 +5,6 @@
 # Usage:
 #   nix/update-pins.sh                # update all
 #   nix/update-pins.sh org-mcp        # update only org-mcp
-#   nix/update-pins.sh agile-gtd      # update only agile-gtd
 #
 # Requires: curl, jq, nix (with flakes enabled). The script grabs the latest
 # commit on the default branch from the GitHub API, rewrites rev/version, and
@@ -72,19 +71,12 @@ update_pkg() {
 main() {
   local target="${1:-all}"
   case "${target}" in
-    all)
-      update_pkg org-mcp   stfl org-mcp
-      update_pkg agile-gtd stfl agile-gtd.el
-      ;;
-    org-mcp)
-      update_pkg org-mcp   stfl org-mcp
-      ;;
-    agile-gtd)
-      update_pkg agile-gtd stfl agile-gtd.el
+    all|org-mcp)
+      update_pkg org-mcp stfl org-mcp
       ;;
     *)
       echo "unknown target: ${target}" >&2
-      echo "usage: $0 [all|org-mcp|agile-gtd]" >&2
+      echo "usage: $0 [all|org-mcp]" >&2
       exit 2
       ;;
   esac
