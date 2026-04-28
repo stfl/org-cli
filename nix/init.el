@@ -30,6 +30,26 @@
 (unless mcp-server-lib--running
   (mcp-server-lib-start))
 
+;; Wire org-mcp's GTD query API to minimal org-ql expressions. Real production
+;; setups use agile-gtd helpers, but for live tests we just need org-mcp's
+;; query-* tools to return SOMETHING deterministic against arbitrary org files
+;; — no projects, no rank, no agile-gtd dependency. Tests that need richer
+;; semantics layer an overlay via `emacs -l <overlay.el>`.
+;;
+;; Signatures (see `org-mcp-query-*-fn' docstrings):
+;;   inbox-fn   : zero args.
+;;   next-fn    : one optional tag-filter sexp (e.g. `(tags "x")') or nil.
+;;   backlog-fn : same as next-fn.
+(setq org-mcp-query-inbox-fn
+      (lambda () '(and (todo) (tags "inbox")))
+      org-mcp-query-next-fn
+      (lambda (&optional tag-filter)
+        (if tag-filter `(and (todo "NEXT") ,tag-filter) '(todo "NEXT")))
+      org-mcp-query-backlog-fn
+      (lambda (&optional tag-filter)
+        (let ((base '(and (todo "TODO") (not (tags "inbox")))))
+          (if tag-filter `(and ,base ,tag-filter) base))))
+
 ;; Pull org-directory and the allow-list from the environment so the launcher
 ;; / rstest fixture can drive everything from outside Emacs. Per-test fixtures
 ;; that need GTD query semantics (org-mcp-query-inbox-fn etc.) load their own
