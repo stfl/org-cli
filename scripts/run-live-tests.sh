@@ -18,21 +18,16 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$REPO_ROOT"
 
+if [[ ! -e "${REPO_ROOT}/result/bin/emacs" ]]; then
+    echo "ERROR: expected Nix output not found at ${REPO_ROOT}/result" >&2
+    echo "Run 'nix build .#live-test-env' from the repo root to build it." >&2
+    exit 1
+fi
+ENV_OUT=$(readlink -f "./result")
+
 FIXTURE_SRC="$REPO_ROOT/tests/live-fixtures/sample.org"
 if [[ ! -f "$FIXTURE_SRC" ]]; then
     echo "ERROR: fixture not found at $FIXTURE_SRC" >&2
-    exit 1
-fi
-
-# 1. Build .#live-test-env on demand. The result symlink is checked into the
-#    nix store, not git, so we always rebuild if the symlink is dangling.
-if [[ ! -e "$REPO_ROOT/result/bin/emacs" ]]; then
-    echo ">>> Building .#live-test-env"
-    nix build .#live-test-env
-fi
-ENV_OUT="$(readlink -f "$REPO_ROOT/result")"
-if [[ ! -x "$ENV_OUT/bin/emacs" || ! -x "$ENV_OUT/bin/emacs-mcp-stdio.sh" ]]; then
-    echo "ERROR: live-test-env build is incomplete at $ENV_OUT" >&2
     exit 1
 fi
 

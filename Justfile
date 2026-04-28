@@ -11,7 +11,7 @@ default:
     just --list
 
 # Bump cargo deps + flake inputs (live-test-env Elisp pins refresh via `just update-pins`)
-update: update-cargo update-flake
+update: update-cargo update-flake update-pins
     @echo "Reminder: refresh live-test-env Elisp pins with 'just update-pins' if needed"
 
 # Bump cargo dependencies only
@@ -33,21 +33,19 @@ check:
     cargo test
     nix flake check
 
-# Run the live integration test suite (gated on ORG_LIVE_TEST=1; passes trivially without env)
-live:
-    ORG_LIVE_TEST=1 cargo test --test live_org_mcp -- --test-threads=1
-
 # Build the self-contained live-test Emacs env (Emacs + org-mcp + emacs-mcp-stdio.sh)
-live-env:
-    nix build .#live-test-env
-
-# Run the read-only live suite end-to-end against an isolated daemon from live-test-env
-live-env-test *ARGS:
-    ./scripts/run-live-tests.sh {{ARGS}}
+integration-test-env:
+    #!/usr/bin/env bash
+    if [[ ! -e "./result/bin/emacs" ]]; then
+        echo ">>> Building .#live-test-env"
+        nix build .#live-test-env
+    fi
+    ENV_OUT=$(readlink -f "./result")
+    if [[ ! -x "${ENV_OUT}/bin/emacs" || ! -x "${ENV_OUT}/bin/emacs-mcp-stdio.sh" ]]; then
+        echo "ERROR: live-test-env build is incomplete at ${ENV_OUT}" >&2
+        exit 1
+    fi
 
 # Run the live suite including mutating (#[ignore]) tests against the disposable fixture
-live-env-test-mutating *ARGS:
-    # Residue (e.g. org-add-todo entries, append-only log notes) is contained
-    # inside the per-invocation tmpdir spawned by scripts/run-live-tests.sh
-    # and cleaned up at teardown.
+integration-test *ARGS: integration-test-env
     ./scripts/run-live-tests.sh --include-ignored {{ARGS}}
