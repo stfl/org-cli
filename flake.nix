@@ -70,6 +70,14 @@
           program = "${self.packages.${system}.default}/bin/org";
         };
 
+        # Repo-local Emacs + org-mcp + agile-gtd environment for live
+        # integration tests. See nix/live-test-env.nix for the contract:
+        #   $out/bin/emacs, bin/emacsclient, bin/emacs-mcp-stdio.sh,
+        #   share/org-cli-live/init.el.
+        # Built independently of `packages.default` so normal `nix build`
+        # never pulls in Emacs.
+        packages.live-test-env = pkgs.callPackage ./nix/live-test-env.nix { inherit pkgs; };
+
         # Dev shell intentionally has NO rust toolchain — bring your own
         # (rustup, system rust, direnv layout). Only project-specific tooling
         # like `just` lives here.
@@ -80,5 +88,6 @@
         };
 
         checks.default = self.packages.${system}.default;
+        checks.live-test-env = self.packages.${system}.live-test-env;
       });
 }

@@ -1,18 +1,18 @@
 # org-cli Justfile — developer workflow shortcuts.
 #
 # Context:
-#   - The org-mcp Elisp source is managed in ~/.config/dotfiles/modules/home/emacs-gtd/update.sh.
-#     This repo only consumes ../org-mcp/org-mcp.el for the contract parity test.
-#     If the sibling repo is missing, the parity test logs and passes — it does not block builds.
-#   - This repo does NOT pin org-mcp inside its flake. The CLI talks to org-mcp over stdio.
+#   - The CLI talks to org-mcp over stdio. The contract parity test consumes
+#     ../org-mcp/org-mcp.el from a sibling checkout (logs & passes if absent).
+#   - The flake's `live-test-env` output pins its own copies of org-mcp and
+#     agile-gtd; refresh those with `just update-pins` (or nix/update-pins.sh).
 
 # Print available targets
 default:
     just --list
 
-# Bump cargo deps + flake inputs (org-mcp pin lives in dotfiles emacs-gtd module, NOT here)
+# Bump cargo deps + flake inputs (live-test-env Elisp pins refresh via `just update-pins`)
 update: update-cargo update-flake
-    @echo "Reminder: org-mcp Elisp pin is managed in ~/.config/dotfiles/modules/home/emacs-gtd/update.sh"
+    @echo "Reminder: refresh live-test-env Elisp pins with 'just update-pins' if needed"
 
 # Bump cargo dependencies only
 update-cargo:
@@ -21,6 +21,10 @@ update-cargo:
 # Update flake inputs only
 update-flake:
     nix flake update
+
+# Refresh repo-local Elisp pins (org-mcp + agile-gtd) used by live-test-env
+update-pins:
+    ./nix/update-pins.sh
 
 # Run all CI gates: fmt, clippy, tests, nix flake check
 check:
@@ -32,3 +36,7 @@ check:
 # Run the live integration test suite (gated on ORG_LIVE_TEST=1; passes trivially without env)
 live:
     ORG_LIVE_TEST=1 cargo test --test live_org_mcp -- --test-threads=1
+
+# Build the self-contained live-test Emacs env (Emacs + org-mcp + emacs-mcp-stdio.sh)
+live-env:
+    nix build .#live-test-env

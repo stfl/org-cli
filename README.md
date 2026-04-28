@@ -152,6 +152,45 @@ Optional env vars:
 - `ORG_LIVE_SERVER=<path>`      — override discovery; use this exact launcher
 - `ORG_LIVE_FILES=<file.org>`   — enables outline/read tests against a real file
 
+### Self-contained Nix env for live tests
+
+For CI and any host without a configured Emacs daemon, the flake exposes a
+repo-local environment that bundles a pinned Emacs + `org-mcp` + `agile-gtd` +
+`emacs-mcp-stdio.sh`. It does **not** read user dotfiles, system Emacs, or a
+pre-running daemon.
+
+```sh
+nix build .#live-test-env
+ls result/bin    # emacs, emacsclient, emacs-mcp-stdio.sh
+ls result/share/org-cli-live  # init.el
+```
+
+Stable paths inside the output:
+- `bin/emacs`, `bin/emacsclient` — wrapped Emacs with all packages
+- `bin/emacs-mcp-stdio.sh`       — the launcher (use as `--server` / `ORG_LIVE_SERVER`)
+- `share/org-cli-live/init.el`   — minimal init driving org-mcp
+
+The init.el reads `ORG_LIVE_DIR` and `ORG_LIVE_FILES` from the environment,
+so the daemon launcher / rstest fixture can configure org files without
+touching user state.
+
+Daemon + launcher recipe (consumed by the rstest fixture):
+
+```sh
+# 1. Spawn an isolated daemon. -Q skips the user's ~/.config/emacs.
+HOME=$TMPDIR ORG_LIVE_DIR=$TMPDIR/org ORG_LIVE_FILES=$TMPDIR/org/test.org \
+  result/bin/emacs -Q --fg-daemon=NAME -l result/share/org-cli-live/init.el &
+
+# 2. Talk to it. Pass server-id / init-function so org-mcp's tools register
+#    under the namespace `tools/list` will then query.
+PATH=result/bin:$PATH HOME=$TMPDIR \
+  result/bin/emacs-mcp-stdio.sh \
+    --socket=NAME --server-id=org-mcp \
+    --init-function=org-mcp-enable --stop-function=org-mcp-disable
+```
+
+Refresh the pinned `org-mcp` / `agile-gtd` revisions with `nix/update-pins.sh`.
+
 ## Development
 
 A `Justfile` provides curated shortcuts — run `just --list` to see all targets.
