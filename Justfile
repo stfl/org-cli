@@ -44,3 +44,10 @@ live-env:
 # Run the read-only live suite end-to-end against an isolated daemon from live-test-env
 live-env-test *ARGS:
     ./scripts/run-live-tests.sh {{ARGS}}
+
+# Run the live suite including mutating (#[ignore]) tests against the disposable fixture
+live-env-test-mutating *ARGS:
+    # Residue (e.g. org-add-todo entries, append-only log notes) is contained
+    # inside the per-invocation tmpdir spawned by scripts/run-live-tests.sh
+    # and cleaned up at teardown.
+    ./scripts/run-live-tests.sh --include-ignored {{ARGS}}

@@ -26,16 +26,41 @@
 /// # Mutating tests (marked `#[ignore]`)
 ///
 /// Tests that modify org state are marked `#[ignore]` so they do not run by
-/// default even with `ORG_LIVE_TEST=1`. They require an explicit opt-in:
+/// default even with `ORG_LIVE_TEST=1`. They require an explicit opt-in.
+///
+/// The supported path is the disposable-fixture launcher (added in
+/// org-cli-4c8), which copies the tracked fixture into a tmpdir, spawns an
+/// isolated daemon against it, and tears the entire workspace down on exit:
+///
+/// ```sh
+/// just live-env-test-mutating
+/// ```
+///
+/// Direct invocation against an external daemon is still possible but
+/// discouraged because residue (e.g. `org-add-todo` entries) is left behind
+/// — `org-mcp` has no delete-headline tool, so cleanup is manual:
 ///
 /// ```sh
 /// ORG_LIVE_TEST=1 ORG_LIVE_FILES=/path/to/test.org \
-///   cargo test --test live_org_mcp -- --ignored --test-threads=1
+///   cargo test --test live_org_mcp -- --include-ignored --test-threads=1
 /// ```
 ///
-/// These tests attempt to revert their changes (read-then-write-then-revert)
-/// but `org-add-todo` entries are left in place since `org-mcp` has no
-/// delete-headline tool. Clean up those manually if needed.
+/// ## Revert audit (org-cli-5uf)
+///
+/// All mutating tests use a read-then-write-then-revert pattern. Cross-test
+/// interference is bounded by `--test-threads=1` (serial) plus cargo's
+/// alphabetical test ordering: `live_todo_add` (only test that adds an
+/// undeletable heading) and `live_edit_log_note` (append-only) sort late, so
+/// their residue cannot perturb earlier tests. The disposable tmpdir is the
+/// safety net for any residue that escapes the in-test revert.
+///
+/// Fixture constraints assumed by the audit:
+///   - The first child heading must have NO `SCHEDULED:` and NO `DEADLINE:`
+///     set, so `live_edit_scheduled` / `live_edit_deadline` reverting via
+///     `null` correctly restores the original (unset) state.
+///   - The first child must have a TODO state and be stable across the
+///     suite — all mutating tests target it. `--test-threads=1` plus revert
+///     keeps that target consistent.
 use std::process::Command;
 
 use org_cli::discovery::discover_server;
@@ -664,6 +689,7 @@ fn live_todo_add() {
                 "parent_uri": parent_uri,
                 "title": "live_todo_add test entry (safe to delete)",
                 "todo_state": "TODO",
+                "body": "Created by live_todo_add — disposable fixture cleans this up.",
                 "tags": []
             }),
         )

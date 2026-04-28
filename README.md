@@ -206,8 +206,24 @@ just live-env-test live_handshake   # forward extra args to cargo test
 ```
 
 Re-runnable from a clean checkout: no leftover daemon, no leftover tmpdir, no
-shared org file. Mutating (`#[ignore]`) tests are out of scope for this runner
-and are tracked separately.
+shared org file.
+
+#### Mutating live tests against the disposable fixture
+
+The `#[ignore]`-marked mutating tests (`edit-*`, `todo state`/`todo add`,
+`clock-*`, `log-note`) are safe to run end-to-end against the same launcher
+because every invocation starts from a fresh tmpdir copy of the checked-in
+fixture and tears the workspace down on exit:
+
+```sh
+just live-env-test-mutating
+```
+
+Residue that the in-test revert cannot undo (e.g. `org-add-todo` entries —
+`org-mcp` has no delete-headline tool — and appended log notes) is contained
+inside the disposable workspace and cleaned up automatically. The default
+`cargo test` path is unaffected: mutating tests stay `#[ignore]`d and only
+run via this dedicated entrypoint.
 
 ## Development
 
