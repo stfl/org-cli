@@ -5,7 +5,6 @@
 /// types directly (e.g. `org_cli::contract`).
 pub mod argv;
 pub mod contract;
-pub mod discovery;
 pub mod mcp;
 pub mod output;
 pub mod uri;

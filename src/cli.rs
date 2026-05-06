@@ -2,33 +2,46 @@
 ///
 /// # Server flag
 ///
-/// `--server <cmd>` takes the executable path. Additional arguments to the
-/// server can be passed via `--server-arg <arg>` (repeatable). This is cleaner
-/// than a single string that would require shell-splitting, avoids quoting
-/// ambiguities, and is explicit about what is the binary vs. what is an arg.
+/// `--server <cmd>` takes the executable path. Defaults to
+/// `$HOME/.config/emacs/org-mcp-stdio.sh` (computed at startup via clap's
+/// `default_value_t`). Additional arguments to the server can be passed via
+/// `--server-arg <arg>` (repeatable).
 ///
 /// Example:
-///   org --server emacs-mcp-stdio.sh --server-arg --socket --server-arg /tmp/mcp.sock tools list
-///
-/// # Discovery
-///
-/// When `--server` is not provided, the CLI searches `$PATH` for
-/// `emacs-mcp-stdio.sh` (see `src/discovery.rs`). If not found, a usage
-/// error (exit 4) is returned.
+///   org --server org-mcp-stdio.sh --server-arg --socket=/tmp/mcp.sock tools list
 use clap::{Parser, Subcommand};
+
+/// Default `--server` path: `$HOME/.config/emacs/org-mcp-stdio.sh`.
+///
+/// Evaluated at process start by clap (via `default_value_t`). If `HOME` is
+/// unset we fall back to a relative path; the eventual spawn will surface a
+/// clear transport error, which is fine for the rare unset-HOME case.
+fn default_server() -> String {
+    let home = std::env::var("HOME").unwrap_or_default();
+    if home.is_empty() {
+        ".config/emacs/org-mcp-stdio.sh".to_string()
+    } else {
+        format!("{home}/.config/emacs/org-mcp-stdio.sh")
+    }
+}
 
 #[derive(Debug, Parser)]
 #[command(name = "org", about = "Agent-first CLI for org-mcp")]
 pub struct Cli {
-    /// Path to the MCP server executable (e.g. emacs-mcp-stdio.sh).
-    /// If omitted, PATH is searched for emacs-mcp-stdio.sh (not yet implemented).
-    #[arg(long, global = true)]
-    pub server: Option<String>,
+    /// Path to the MCP server executable.
+    /// Defaults to `~/.config/emacs/org-mcp-stdio.sh`.
+    #[arg(long, global = true, default_value_t = default_server())]
+    pub server: String,
 
     /// Additional arguments to pass to the server executable (repeatable).
     /// `allow_hyphen_values` lets values like `--socket` be passed without an
     /// equals sign — `--server-arg --socket` works, matching the doc example.
-    #[arg(long = "server-arg", global = true, value_name = "ARG", allow_hyphen_values = true)]
+    #[arg(
+        long = "server-arg",
+        global = true,
+        value_name = "ARG",
+        allow_hyphen_values = true
+    )]
     pub server_args: Vec<String>,
 
     /// Emit compact single-line JSON instead of pretty-printed output.
@@ -404,17 +417,12 @@ pub enum ToolsCmd {
 }
 
 impl Cli {
-    /// Build the argv list for spawning the server process.
-    /// Returns an error string if no server is configured.
-    /// Discovery (PATH search) is handled in `main.rs::run()` before this is called.
-    pub fn server_argv(&self) -> Result<Vec<String>, String> {
-        match &self.server {
-            Some(cmd) => {
-                let mut argv = vec![cmd.clone()];
-                argv.extend(self.server_args.clone());
-                Ok(argv)
-            }
-            None => Err("no --server specified".to_string()),
-        }
+    /// Build the argv list for spawning the server process. `--server` is
+    /// always set (clap default fills in `~/.config/emacs/org-mcp-stdio.sh`),
+    /// so this is infallible.
+    pub fn server_argv(&self) -> Vec<String> {
+        let mut argv = vec![self.server.clone()];
+        argv.extend(self.server_args.clone());
+        argv
     }
 }

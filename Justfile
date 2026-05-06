@@ -33,7 +33,9 @@ check:
     cargo test
     nix flake check
 
-# Build the self-contained live-test Emacs env (Emacs + org-mcp + emacs-mcp-stdio.sh)
+# Build the self-contained live-test Emacs env (Emacs + org-mcp).
+# Both stdio shims are exposed via deterministic paths in
+# share/org-cli-live/paths.env (see nix/live-test-env.nix).
 integration-test-env:
     #!/usr/bin/env bash
     if [[ ! -e "./result/bin/emacs" ]]; then
@@ -41,8 +43,20 @@ integration-test-env:
         nix build .#live-test-env
     fi
     ENV_OUT=$(readlink -f "./result")
-    if [[ ! -x "${ENV_OUT}/bin/emacs" || ! -x "${ENV_OUT}/bin/emacs-mcp-stdio.sh" ]]; then
+    if [[ ! -x "${ENV_OUT}/bin/emacs" ]]; then
         echo "ERROR: live-test-env build is incomplete at ${ENV_OUT}" >&2
+        exit 1
+    fi
+    PATHS_ENV="${ENV_OUT}/share/org-cli-live/paths.env"
+    if [[ ! -f "$PATHS_ENV" ]]; then
+        echo "ERROR: $PATHS_ENV missing" >&2
+        exit 1
+    fi
+    # shellcheck source=/dev/null
+    source "$PATHS_ENV"
+    if [[ ! -x "$ORG_MCP_STDIO" ]]; then
+        echo "ERROR: ORG_MCP_STDIO=$ORG_MCP_STDIO not executable." >&2
+        echo "Update the org-mcp pin (nix/update-pins.sh) to a rev that ships scripts/org-mcp-stdio.sh." >&2
         exit 1
     fi
 

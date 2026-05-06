@@ -494,7 +494,12 @@ fn handle_tools_call(id: Value, params: Option<Value>) -> Response {
     // client calls one anyway, behave like a real MCP server: return JSON-RPC
     // method-not-found (-32601). Mirrors what org-mcp's mcp-server-lib emits
     // for unknown tools.
-    if no_gtd() && matches!(tool_name.as_str(), "query-inbox" | "query-next" | "query-backlog") {
+    if no_gtd()
+        && matches!(
+            tool_name.as_str(),
+            "query-inbox" | "query-next" | "query-backlog"
+        )
+    {
         return Response {
             jsonrpc: "2.0".to_string(),
             id,

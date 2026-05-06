@@ -1,5 +1,4 @@
 mod cli;
-mod discovery;
 mod mcp;
 mod uri;
 
@@ -55,23 +54,10 @@ fn run(cli: Cli, compact: bool) -> i32 {
         return print_error(ErrorKind::Usage, 2, e.to_string(), json!(null), 2, compact);
     }
 
-    // Resolve server argv for all other commands.
-    // If --server is omitted, try auto-discovery of emacs-mcp-stdio.sh in PATH.
-    let argv = if cli.server.is_some() || !cli.server_args.is_empty() {
-        match cli.server_argv() {
-            Ok(a) => a,
-            Err(msg) => {
-                return print_error(ErrorKind::Usage, 2, msg, json!(null), 2, compact);
-            }
-        }
-    } else {
-        match discovery::discover_server() {
-            Ok(a) => a,
-            Err(msg) => {
-                return print_error(ErrorKind::Usage, 2, msg, json!(null), 4, compact);
-            }
-        }
-    };
+    // Resolve server argv. `--server` always has a value (clap default fills
+    // in `~/.config/emacs/org-mcp-stdio.sh`); a missing file surfaces as a
+    // transport error from the spawn rather than a usage error.
+    let argv = cli.server_argv();
 
     match &cli.command {
         Commands::Read { uri } => cmd_read(&argv, uri, compact),
@@ -894,10 +880,7 @@ fn map_content_item(item: &Value) -> Value {
             json!({ "type": "text", "raw": item })
         }
         "image" => {
-            let mime_type = item
-                .get("mimeType")
-                .and_then(Value::as_str)
-                .unwrap_or("");
+            let mime_type = item.get("mimeType").and_then(Value::as_str).unwrap_or("");
             let data = item.get("data").and_then(Value::as_str).unwrap_or("");
             json!({
                 "type": "image",

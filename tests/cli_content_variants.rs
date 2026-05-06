@@ -112,7 +112,10 @@ fn test_mixed_variant_is_array() {
     let v: serde_json::Value = serde_json::from_str(&stdout).expect("stdout must be valid JSON");
 
     assert_eq!(v["ok"], true);
-    assert!(v["data"].is_array(), "data must be an array for mixed content");
+    assert!(
+        v["data"].is_array(),
+        "data must be an array for mixed content"
+    );
 
     let arr = v["data"].as_array().unwrap();
     assert_eq!(arr.len(), 2, "array must have exactly 2 items");
@@ -127,5 +130,8 @@ fn test_mixed_variant_is_array() {
     // Second item: image shape
     assert_eq!(arr[1]["type"], "image", "second item type must be image");
     assert_eq!(arr[1]["mime_type"], "image/png", "second item mime_type");
-    assert!(arr[1]["data"].is_string(), "second item data must be string");
+    assert!(
+        arr[1]["data"].is_string(),
+        "second item data must be string"
+    );
 }

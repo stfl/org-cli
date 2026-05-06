@@ -63,7 +63,6 @@
 ///     keeps that target consistent.
 use std::process::Command;
 
-use org_cli::discovery::discover_server;
 use org_cli::mcp::client::Client;
 use serde_json::Value;
 
@@ -76,21 +75,20 @@ fn live_enabled() -> bool {
     std::env::var("ORG_LIVE_TEST").as_deref() == Ok("1")
 }
 
-/// Resolve the server argv. Prefers `ORG_LIVE_SERVER` env var, falls back to
-/// PATH discovery via `discover_server()`. Panics with a clear message if
-/// discovery fails — set `ORG_LIVE_SERVER=<path>` or install the launcher on
-/// $PATH to fix this.
+/// Resolve the server argv. Prefers `ORG_LIVE_SERVER` env var; otherwise
+/// falls back to the same default the CLI uses (`~/.config/emacs/org-mcp-stdio.sh`).
+/// Panics with a clear message if `HOME` is unset and no override is given.
 fn resolve_server() -> Vec<String> {
     if let Ok(path) = std::env::var("ORG_LIVE_SERVER") {
         return vec![path];
     }
-    discover_server().unwrap_or_else(|e| {
+    let home = std::env::var("HOME").unwrap_or_else(|_| {
         panic!(
-            "live test: could not locate emacs-mcp-stdio.sh — {}.\n\
-             Set ORG_LIVE_SERVER=<path> or install the launcher on $PATH.",
-            e
+            "live test: HOME unset and ORG_LIVE_SERVER not provided. \
+             Set ORG_LIVE_SERVER=<path> to point at a launcher."
         )
-    })
+    });
+    vec![format!("{home}/.config/emacs/org-mcp-stdio.sh")]
 }
 
 /// Strip any leading `org://` prefix so URIs are bare when sent to the server.

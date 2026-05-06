@@ -24,12 +24,19 @@ A devShell with cargo/rustc/rustfmt/clippy/rust-analyzer is available via `nix d
 
 ## Usage
 
-Pass a launcher with `--server <cmd>` or omit the flag to auto-discover `emacs-mcp-stdio.sh` in `$PATH`.
+`--server` defaults to `~/.config/emacs/org-mcp-stdio.sh`. Pass `--server <path>`
+to override.
+
+`org-mcp-stdio.sh` is a thin wrapper around `emacs-mcp-stdio.sh` (shipped by
+`mcp-server-lib`) that bakes in the org-mcp `--server-id` / `--init-function`
+/ `--stop-function`, so callers don't have to. It resolves the underlying
+`emacs-mcp-stdio.sh` first via co-location (same directory as the wrapper)
+then via `$PATH`.
 
 ```
-org tools list                                       # uses PATH-discovered launcher
-org --server emacs-mcp-stdio.sh tools list           # explicit launcher
-org --server emacs-mcp-stdio.sh read org://<uuid>
+org tools list                                       # default launcher
+org --server /path/to/org-mcp-stdio.sh tools list    # explicit override
+org read org://<uuid>
 org schema                                           # local; no server needed
 ```
 
@@ -37,13 +44,13 @@ For multi-arg launchers, the recommended form is `--` followed by the trailing
 launcher args, then the subcommand:
 
 ```
-org --server emacs-mcp-stdio.sh -- --socket /tmp/mcp.sock tools list
+org -- --socket /tmp/mcp.sock tools list
 ```
 
 The legacy repeatable `--server-arg` form is still accepted:
 
 ```
-org --server emacs-mcp-stdio.sh --server-arg --socket --server-arg /tmp/mcp.sock tools list
+org --server-arg --socket=/tmp/mcp.sock tools list
 ```
 
 ## JSON envelope
@@ -119,25 +126,28 @@ org schema edit body         # one command's contract
 
 ## Examples (verified by tests/)
 
+`--server` is omitted below — auto-discovery picks `~/.config/emacs/org-mcp-stdio.sh`
+(or the PATH fallbacks). Pass `--server <path>` explicitly to override.
+
 ```sh
 # Read a headline (org:// prefix accepted)
-org --server emacs-mcp-stdio.sh read org://abc
+org read org://abc
 
 # Update TODO state
-org --server emacs-mcp-stdio.sh todo state org://abc DONE --from TODO --note "shipped"
+org todo state org://abc DONE --from TODO --note "shipped"
 
 # Edit body
-org --server emacs-mcp-stdio.sh edit body org://abc --new "new body"
+org edit body org://abc --new "new body"
 
 # Clock in with conflict resolve
-org --server emacs-mcp-stdio.sh clock in org://abc --resolve
+org clock in org://abc --resolve
 
 # List all tools
-org --server emacs-mcp-stdio.sh tools list
+org tools list
 
 # Query org-ql (bare form or explicit `run`)
-org --server emacs-mcp-stdio.sh query '(todo "TODO")'
-org --server emacs-mcp-stdio.sh query run '(todo "TODO")'
+org query '(todo "TODO")'
+org query run '(todo "TODO")'
 ```
 
 ## Live integration test
@@ -155,21 +165,27 @@ Optional env vars:
 ### Self-contained Nix env for live tests
 
 For CI and any host without a configured Emacs daemon, the flake exposes a
-repo-local environment that bundles a pinned Emacs + `org-mcp` + `org-ql` +
-`emacs-mcp-stdio.sh`. It does **not** read user dotfiles, system Emacs, or a
-pre-running daemon. Tests that need extra Elisp (e.g. `agile-gtd` for the GTD
-query bindings) load an overlay file via `emacs -l <overlay.el>`.
+repo-local environment that bundles a pinned Emacs + `org-mcp` + `org-ql`.
+It does **not** read user dotfiles, system Emacs, or a pre-running daemon.
+Tests that need extra Elisp (e.g. `agile-gtd` for the GTD query bindings)
+load an overlay file via `emacs -l <overlay.el>`.
 
 ```sh
 nix build .#live-test-env
-ls result/bin    # emacs, emacsclient, emacs-mcp-stdio.sh
-ls result/share/org-cli-live  # init.el
+ls result/bin                                       # emacs, emacsclient
+cat result/share/org-cli-live/paths.env             # ORG_MCP_STDIO=..., EMACS_MCP_STDIO_DIR=...
 ```
 
 Stable paths inside the output:
-- `bin/emacs`, `bin/emacsclient` — wrapped Emacs with all packages
-- `bin/emacs-mcp-stdio.sh`       — the launcher (use as `--server` / `ORG_LIVE_SERVER`)
-- `share/org-cli-live/init.el`   — minimal init driving org-mcp
+- `bin/emacs`, `bin/emacsclient`        — wrapped Emacs with all packages
+- `share/org-cli-live/init.el`          — minimal init driving org-mcp
+- `share/org-cli-live/paths.env`        — Nix-baked `ORG_MCP_STDIO` (absolute
+                                          path to the org-mcp wrapper inside
+                                          the org-mcp store path) and
+                                          `EMACS_MCP_STDIO_DIR` (directory
+                                          containing the patched generic shim;
+                                          add to `$PATH` so the wrapper's
+                                          PATH-fallback resolves)
 
 The init.el reads `ORG_LIVE_DIR` and `ORG_LIVE_FILES` from the environment,
 so the daemon launcher / rstest fixture can configure org files without
@@ -182,12 +198,11 @@ Daemon + launcher recipe (consumed by the rstest fixture):
 HOME=$TMPDIR ORG_LIVE_DIR=$TMPDIR/org ORG_LIVE_FILES=$TMPDIR/org/test.org \
   result/bin/emacs -Q --fg-daemon=NAME -l result/share/org-cli-live/init.el &
 
-# 2. Talk to it. Pass server-id / init-function so org-mcp's tools register
-#    under the namespace `tools/list` will then query.
-PATH=result/bin:$PATH HOME=$TMPDIR \
-  result/bin/emacs-mcp-stdio.sh \
-    --socket=NAME --server-id=org-mcp \
-    --init-function=org-mcp-enable --stop-function=org-mcp-disable
+# 2. Talk to it. The wrapper bakes in --server-id / --init-function /
+#    --stop-function; only the daemon socket is dynamic.
+source result/share/org-cli-live/paths.env
+PATH="$EMACS_MCP_STDIO_DIR:$PATH" HOME=$TMPDIR \
+  "$ORG_MCP_STDIO" --socket=NAME
 ```
 
 Refresh the pinned `org-mcp` / `agile-gtd` revisions with `nix/update-pins.sh`.

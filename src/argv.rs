@@ -38,8 +38,7 @@ pub fn split_sentinel(argv: Vec<String>, subcommands: &[&str]) -> (Vec<String>, 
         return (argv, Vec::new());
     };
 
-    let next_sub =
-        (sentinel + 1..argv.len()).find(|&j| subcommands.contains(&argv[j].as_str()));
+    let next_sub = (sentinel + 1..argv.len()).find(|&j| subcommands.contains(&argv[j].as_str()));
 
     let mut cleaned: Vec<String> = argv[..sentinel].to_vec();
     let extra: Vec<String> = match next_sub {

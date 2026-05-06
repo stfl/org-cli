@@ -57,7 +57,10 @@ fn test_sentinel_skips_value_of_known_flags() {
         "list",
     ]);
     let (cleaned, extra) = split_sentinel(argv.clone(), SUBCMDS);
-    assert_eq!(cleaned, argv, "value-form `--` must NOT be treated as sentinel");
+    assert_eq!(
+        cleaned, argv,
+        "value-form `--` must NOT be treated as sentinel"
+    );
     assert!(extra.is_empty());
 }
 
@@ -109,9 +112,7 @@ fn test_sentinel_handles_timeout_value_flag() {
     let (cleaned, extra) = split_sentinel(argv, SUBCMDS);
     assert_eq!(
         cleaned,
-        s(&[
-            "org", "--timeout", "5", "--server", "foo", "tools", "list"
-        ])
+        s(&["org", "--timeout", "5", "--server", "foo", "tools", "list"])
     );
     assert_eq!(extra, s(&["--bar"]));
 }

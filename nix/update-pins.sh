@@ -31,15 +31,28 @@ update_pkg() {
   fi
 
   echo "[${pname}] querying latest commit from ${owner}/${repo}@${branch}"
-  local commit_json latest_rev latest_date current_rev
+  local commit_json latest_rev commit_iso latest_date latest_version current_rev
   commit_json=$(curl -fsSL "https://api.github.com/repos/${owner}/${repo}/commits/${branch}")
   latest_rev=$(echo "${commit_json}" | jq -r '.sha')
-  latest_date=$(echo "${commit_json}" | jq -r '.commit.committer.date' | cut -c1-10)
+  # committer.date is ISO 8601 in UTC: YYYY-MM-DDTHH:MM:SSZ
+  commit_iso=$(echo "${commit_json}" | jq -r '.commit.committer.date')
+  latest_date=${commit_iso:0:10}
+  # MELPA-style version: YYYYMMDD.HHMM (UTC). The HHMM tail is canonicalized
+  # the same way Emacs' version-to-list / package-version-join does — leading
+  # zeros stripped — so the Nix `version` matches the directory name baked
+  # into the tar by package-build, which elpa2nix expects to untar cleanly.
+  local ymd hhmm_raw hhmm_canon
+  ymd="${commit_iso:0:4}${commit_iso:5:2}${commit_iso:8:2}"
+  hhmm_raw="${commit_iso:11:2}${commit_iso:14:2}"
+  hhmm_canon="${hhmm_raw#"${hhmm_raw%%[!0]*}"}"  # strip leading zeros
+  hhmm_canon=${hhmm_canon:-0}
+  latest_version="${ymd}.${hhmm_canon}"
 
   current_rev=$(grep 'rev = "' "${pkg_file}" | head -1 | sed 's/.*rev = "\(.*\)";.*/\1/')
 
   echo "  current: ${current_rev}"
   echo "  latest:  ${latest_rev}"
+  echo "  version: ${latest_version} (${latest_date})"
 
   if [ "${current_rev}" = "${latest_rev}" ]; then
     echo "  already up to date"
@@ -47,8 +60,10 @@ update_pkg() {
   fi
 
   sed -i "s|rev = \"${current_rev}\";|rev = \"${latest_rev}\";|" "${pkg_file}"
-  sed -i "s|version = \"unstable-[0-9-]*\";|version = \"unstable-${latest_date}\";|" "${pkg_file}"
-  sed -i "s|sha256 = \"sha256-[^\"]*\";|sha256 = \"${FAKE_HASH}\";|" "${pkg_file}"
+  # Match MELPA-style YYYYMMDD.N versions used by melpaBuild.
+  sed -i -E "s|version = \"[0-9]+\.[0-9]+\";|version = \"${latest_version}\";|" "${pkg_file}"
+  # melpaBuild uses fetchFromGitHub with `hash =` (SRI form).
+  sed -i "s|hash = \"sha256-[^\"]*\";|hash = \"${FAKE_HASH}\";|" "${pkg_file}"
 
   echo "[${pname}] computing src hash"
   local build_out src_sri
@@ -65,7 +80,7 @@ update_pkg() {
   echo "  src hash: ${src_sri}"
   sed -i "s|${FAKE_HASH}|${src_sri}|" "${pkg_file}"
 
-  echo "[${pname}] updated to ${latest_rev} (${latest_date})"
+  echo "[${pname}] updated to ${latest_rev} version=${latest_version} (${latest_date})"
 }
 
 main() {

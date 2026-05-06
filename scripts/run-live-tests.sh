@@ -25,6 +25,25 @@ if [[ ! -e "${REPO_ROOT}/result/bin/emacs" ]]; then
 fi
 ENV_OUT=$(readlink -f "./result")
 
+# Pull deterministic shim paths baked at build time. The Nix derivation
+# writes paths.env with ORG_MCP_STDIO / EMACS_MCP_STDIO (absolute shim paths)
+# and ORG_MCP_BIN / EMACS_MCP_LIB_BIN (their bin/ directories — used to
+# satisfy org-mcp-stdio.sh's PATH-based lookup of emacs-mcp-stdio.sh).
+# See nix/live-test-env.nix.
+PATHS_ENV="$ENV_OUT/share/org-cli-live/paths.env"
+if [[ ! -f "$PATHS_ENV" ]]; then
+    echo "ERROR: $PATHS_ENV missing — rebuild .#live-test-env" >&2
+    exit 1
+fi
+# shellcheck disable=SC1090
+source "$PATHS_ENV"
+if [[ ! -x "$ORG_MCP_STDIO" ]]; then
+    echo "ERROR: ORG_MCP_STDIO=$ORG_MCP_STDIO is not executable." >&2
+    echo "The pinned org-mcp rev must ship scripts/org-mcp-stdio.sh — repin via" >&2
+    echo "nix/update-pins.sh after the upstream rev includes it." >&2
+    exit 1
+fi
+
 FIXTURE_SRC="$REPO_ROOT/tests/live-fixtures/sample.org"
 if [[ ! -f "$FIXTURE_SRC" ]]; then
     echo "ERROR: fixture not found at $FIXTURE_SRC" >&2
@@ -110,20 +129,18 @@ if [[ "$ready" -ne 1 ]]; then
 fi
 echo ">>> Daemon ready"
 
-# 6. Write a launcher wrapper that bakes in the --socket / org-mcp args. The
-#    test harness reads ORG_LIVE_SERVER as a single path with no extra argv
-#    slots, so the wrapper is the contract surface.
+# 6. Write a launcher wrapper that bakes in the daemon socket. The test
+#    harness reads ORG_LIVE_SERVER as a single path with no extra argv
+#    slots, so the wrapper is the contract surface. org-mcp-stdio.sh
+#    already injects --server-id / --init-function / --stop-function and
+#    falls back to $PATH for emacs-mcp-stdio.sh — we put both package bin/
+#    dirs on PATH so that fallback resolves.
 cat >"$LAUNCHER" <<WRAPPER
 #!/usr/bin/env bash
-export PATH="$ENV_OUT/bin:\$PATH"
+export PATH="$ORG_MCP_BIN:$EMACS_MCP_LIB_BIN:$ENV_OUT/bin:\$PATH"
 export HOME="$WORKSPACE"
 export XDG_RUNTIME_DIR="$RUNTIME_DIR"
-exec "$ENV_OUT/bin/emacs-mcp-stdio.sh" \\
-    --socket="$DAEMON_NAME" \\
-    --server-id=org-mcp \\
-    --init-function=org-mcp-enable \\
-    --stop-function=org-mcp-disable \\
-    "\$@"
+exec "$ORG_MCP_STDIO" --socket="$DAEMON_NAME" "\$@"
 WRAPPER
 chmod +x "$LAUNCHER"
 

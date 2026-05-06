@@ -14,22 +14,26 @@
   };
 
   outputs = { self, nixpkgs, flake-utils, fenix }:
-    flake-utils.lib.eachDefaultSystem (system:
-      let
-        pkgs = nixpkgs.legacyPackages.${system};
-        cargoToml = builtins.fromTOML (builtins.readFile ./Cargo.toml);
-        # Use minimal toolchain (cargo + rustc + rust-std only). The full
-        # `stable.toolchain` pulls preview components (rust-analyzer-preview,
-        # llvm-bitcode-linker-preview, llvm-tools-preview) that aren't needed
-        # for `buildRustPackage` and have caused empty-hash failures in CI.
-        toolchain = fenix.packages.${system}.minimal.toolchain;
-        rustPlatform = pkgs.makeRustPlatform {
-          cargo = toolchain;
-          rustc = toolchain;
-        };
-      in
-      {
-        packages.default = rustPlatform.buildRustPackage {
+    let
+      cargoToml = builtins.fromTOML (builtins.readFile ./Cargo.toml);
+
+      # Build org-cli against an arbitrary `pkgs`. Used by both
+      # `packages.default` (per-system) and `overlays.default` (consumer
+      # nixpkgs), so downstream flakes can pull `pkgs.org-cli` after
+      # applying the overlay.
+      mkOrgCli = pkgs:
+        let
+          # Use minimal toolchain (cargo + rustc + rust-std only). The full
+          # `stable.toolchain` pulls preview components (rust-analyzer-preview,
+          # llvm-bitcode-linker-preview, llvm-tools-preview) that aren't needed
+          # for `buildRustPackage` and have caused empty-hash failures in CI.
+          toolchain = fenix.packages.${pkgs.system}.minimal.toolchain;
+          rustPlatform = pkgs.makeRustPlatform {
+            cargo = toolchain;
+            rustc = toolchain;
+          };
+        in
+        rustPlatform.buildRustPackage {
           pname = cargoToml.package.name;
           version = cargoToml.package.version;
 
@@ -64,6 +68,18 @@
             platforms = platforms.unix;
           };
         };
+    in
+    {
+      overlays.default = _final: prev: {
+        org-cli = mkOrgCli prev;
+      };
+    }
+    // flake-utils.lib.eachDefaultSystem (system:
+      let
+        pkgs = nixpkgs.legacyPackages.${system};
+      in
+      {
+        packages.default = mkOrgCli pkgs;
 
         apps.default = {
           type = "app";
